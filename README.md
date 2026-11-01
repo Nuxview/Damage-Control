@@ -30,13 +30,14 @@ For frontend development, run `pnpm run dev` in `frontend/` alongside the backen
 4. **You said…:** a host or moderator pins a faithful summary of what was actually said. One shared correction can change a claim; its original is retained in the record.
 5. **Closing:** deliver one explanation that fits the record. Close the conference, then start the next round.
 
-Keep voice/video in your usual call or Twitch Stream Together. Damage Control does not capture cameras, microphones, or stream footage. A moderator can run the controls while both creators perform.
+Keep voice/video in your usual call or Twitch Stream Together. Damage Control does not capture cameras, microphones, or stream footage. A moderator can run the controls while both creators perform. The **Creator** workspace shows the current question, approved private advice, round controls, and a read-only claim record. The **Moderator** workspace owns the press inbox and claim entry. **Room setup** holds channel connections, invites, and incident selection. Creator and moderator workspaces use the same private control capability; they are not separate permission levels.
 
 ### Collaborator and OBS links
 
-Open **Invite & overlay** in the studio:
+Open **Room setup** in the studio:
 
-- **Private creator invite:** gives your partner/moderator full room controls. The secret is carried in the URL fragment, then stored in that browser's local storage. Never show this link or the creator studio on-stream. In this MVP all invited controllers have the same permissions.
+- **Private creator/moderator invites:** gives your partner/moderator full room controls. The secret is carried in the URL fragment, then stored in that browser's local storage. Never show this link or the creator studio on-stream. Each invite opens its matching workspace. In this MVP all invited controllers have the same permissions.
+- **Viewer link:** a read-only page at `/view/ROOM`. This route ignores saved creator credentials, even in the host’s browser. It shows approved content and chat instructions, with the claim record collapsed.
 - **OBS browser source:** a read-only transparent overlay at `/overlay/ROOM`. Set the source to **1920 × 1080**. It shows the incident, active spokesperson, approved question, correction status, and three most recent pinned claims. It never shows pending submissions or PR talking points.
 
 Both creators need to reach the **same running backend**. A localhost URL on your computer is not accessible from your partner's computer. For remote play, run one instance on an HTTPS host or behind your own authenticated/private networking setup, set `APP_BASE_URL` to its public HTTPS origin, and share links from that origin. No hosting service has been provisioned by this repository.
@@ -91,4 +92,4 @@ Room state includes approved and pending contributions, author display names, so
 
 See [docs/DEMO.md](docs/DEMO.md) for a short recording plan and what remains before submission. Build session: `01a1882c-c255-7a13-97d0-d1a788a4d0e6`. Confirm the session ID in Codex before submitting; no demo footage, live claims, or submission has been fabricated.
 
-MIT licensed; original starter-template license and agent skills are preserved.
+MIT licensed. Codex repository guidance is in `AGENTS.md`; unused template skills, other-agent configurations, and starter-only automation have been removed.

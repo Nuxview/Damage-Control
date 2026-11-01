@@ -86,8 +86,9 @@ function App() {
   const path = location.pathname.split("/");
   const code = path[2]?.toUpperCase() || "";
   const overlay = path[1] === "overlay";
+  const publicViewer = path[1] === "view";
   const [key] = useState(() => {
-    if (overlay || !code) return "";
+    if (overlay || publicViewer || !code) return "";
     const incoming = new URLSearchParams(location.hash.slice(1)).get("key");
     try {
       if (incoming) localStorage.setItem("dc:" + code, incoming);
@@ -109,7 +110,12 @@ function App() {
   const [now, setNow] = useState(Date.now() / 1000);
   const [offset, setOffset] = useState(0);
   const [help, setHelp] = useState(false);
-  const [sharing, setSharing] = useState(false);
+  const [view, setView] = useState<"creator" | "moderator" | "setup">(() => {
+    const requested = new URLSearchParams(location.search).get("view");
+    return requested === "moderator" || requested === "setup"
+      ? requested
+      : "creator";
+  });
   const [names, setNames] = useState(["", ""]);
   const [mode, setMode] = useState("rehearsal");
   const [claim, setClaim] = useState("");
@@ -290,6 +296,501 @@ function App() {
       </div>
     </section>
   );
+  const controls = room && key && (
+    <section className="round-controls panel">
+      <div className="phase-track">
+        {phases.map((p, i) => (
+          <span
+            key={p}
+            className={
+              p === room.phase
+                ? "current"
+                : i < phases.indexOf(room.phase)
+                  ? "complete"
+                  : ""
+            }
+          >
+            {i + 1}
+            <small>{phaseNames[p]}</small>
+          </span>
+        ))}
+      </div>
+      <div className="control-row">
+        <div className="timer">
+          <strong>
+            {String(Math.floor(remaining / 60)).padStart(2, "0")}:
+            {String(remaining % 60).padStart(2, "0")}
+          </strong>
+          <button
+            className="text-button"
+            disabled={disabled || !isPerforming}
+            onClick={() => perform(() => act("timer"))}
+          >
+            {remaining === 0
+              ? "Restart 30s timer"
+              : room.deadline
+                ? "Pause timer"
+                : room.remaining !== null
+                  ? "Resume timer"
+                  : "Start 30s timer"}
+          </button>
+        </div>
+        <button
+          className="secondary"
+          disabled={disabled || !isPerforming}
+          onClick={() => perform(() => act("turn"))}
+        >
+          Pass the mic
+        </button>
+        <button
+          className="primary"
+          disabled={disabled}
+          onClick={() =>
+            perform(() =>
+              act(room.phase === "finished" ? "new_round" : "advance"),
+            )
+          }
+        >
+          {nextNames[room.phase]}
+        </button>
+      </div>
+      <p className="muted">
+        The timer is a cue, not a cutoff. Advance when the joke lands.
+      </p>
+    </section>
+  );
+  const incidentPicker = room && key && room.phase === "briefing" && (
+    <section className="panel incident-picker">
+      <h2>Choose your disaster</h2>
+      <div className="incident-options">
+        {config.incidents.map((s) => (
+          <button
+            disabled={disabled}
+            key={s}
+            className={s === room.incident ? "selected" : ""}
+            onClick={() => perform(() => act("incident", { text: s }))}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          perform(async () => {
+            await act("incident", { text: incident });
+            setIncident("");
+          });
+        }}
+      >
+        <label>
+          Or write your own fictional incident
+          <textarea
+            maxLength={280}
+            value={incident}
+            onChange={(e) => setIncident(e.target.value)}
+            placeholder="Our company would like to address…"
+          />
+        </label>
+        <button className="secondary" disabled={disabled || !incident.trim()}>
+          Use this incident
+        </button>
+      </form>
+    </section>
+  );
+  const advice = room && key && isPerforming && room.spin && (
+    <section className="panel adviser">
+      <div>
+        <span className="section-kicker">For your eyes only</span>
+        <h2>Your PR adviser says…</h2>
+      </div>
+      <p>
+        {room.spin?.text ||
+          "Approve a talking point from the inbox. Work it into your answer without breaking character."}
+      </p>
+      {room.spin && (
+        <small>
+          Suggested by {room.spin.author} / {room.spin.source}
+        </small>
+      )}
+    </section>
+  );
+  const record = room && (
+    <section className="panel record">
+      <div className="panel-heading">
+        <h2>You said…</h2>
+        <span className="count">{room.claims.length}/12</span>
+      </div>
+      <p className="muted">An official record of unfortunate commitments.</p>
+      {room.claims.length === 0 ? (
+        <div className="empty-note">
+          The record is clean.
+          <br />
+          <small>Enjoy that while it lasts.</small>
+        </div>
+      ) : (
+        <ol className="claims">
+          {room.claims.map((c, i) => (
+            <li key={c.id}>
+              <span className="receipt-number">
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              <div>
+                <blockquote>“{c.text}”</blockquote>
+                <small>
+                  {c.speaker}
+                  {c.corrected ? " / Officially corrected" : ""}
+                </small>
+                {c.original && (
+                  <p className="original">Previously: {c.original}</p>
+                )}
+                {key && !room.correction_used && isPerforming && (
+                  <button
+                    className="text-button correction-link"
+                    disabled={disabled}
+                    onClick={() => {
+                      setCorrectionId(c.id);
+                      setCorrection("");
+                    }}
+                  >
+                    Use correction here
+                  </button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+      {key && view === "moderator" && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            perform(async () => {
+              await act("claim", { text: claim });
+              setClaim("");
+            });
+          }}
+        >
+          <label>
+            Pin what was actually said
+            <textarea
+              value={claim}
+              onChange={(e) => setClaim(e.target.value)}
+              maxLength={280}
+              placeholder="We guarantee every passenger a slice of cake."
+            />
+          </label>
+          <button
+            className="secondary full"
+            disabled={disabled || !isPerforming || !claim.trim()}
+          >
+            Pin to the record
+          </button>
+        </form>
+      )}
+      <div
+        className={"correction-meter " + (room.correction_used ? "used" : "")}
+      >
+        <span>{room.correction_used ? "0" : "1"}</span>
+        <div>
+          <strong>Shared official correction</strong>
+          <small>
+            {room.correction_used
+              ? "You’re committed to everything else."
+              : "One lifeline. Use it together."}
+          </small>
+        </div>
+      </div>
+    </section>
+  );
+  const inbox = room && key && (
+    <section className="panel inbox">
+      <div className="panel-heading">
+        <h2>The press inbox</h2>
+        <span className="count">{room.queue?.length || 0}</span>
+      </div>
+      <p className="muted">Nothing goes on-air until you approve it.</p>
+      <div className="filters" role="group" aria-label="Filter contributions">
+        {["all", "question", "spin", "incident"].map((f) => (
+          <button
+            key={f}
+            className={filter === f ? "active" : ""}
+            onClick={() => setFilter(f)}
+          >
+            {
+              {
+                all: "All",
+                question: "Questions",
+                spin: "PR",
+                incident: "Incidents",
+              }[f]
+            }
+          </button>
+        ))}
+      </div>
+      <div className="queue-list">
+        {room.queue
+          ?.filter((q) => filter === "all" || q.kind === filter)
+          .map((q) => (
+            <article className="queue-item" key={q.id}>
+              <div>
+                <span className={"kind " + q.kind}>{kindNames[q.kind]}</span>
+                <small>{q.source}</small>
+              </div>
+              <p>{q.text}</p>
+              <small>From {q.author}</small>
+              <div className="queue-actions">
+                <button
+                  className="secondary"
+                  disabled={
+                    disabled ||
+                    (q.kind === "incident"
+                      ? room.phase !== "briefing"
+                      : !["opening", "questions"].includes(room.phase))
+                  }
+                  onClick={() => perform(() => act("approve", { id: q.id }))}
+                >
+                  {q.kind === "spin"
+                    ? "Send to adviser"
+                    : q.kind === "incident"
+                      ? "Use incident"
+                      : "Put on-air"}
+                </button>
+                <button
+                  className="text-button"
+                  disabled={disabled}
+                  onClick={() => perform(() => act("reject", { id: q.id }))}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </article>
+          ))}
+        {!room.queue?.some((q) => filter === "all" || q.kind === filter) && (
+          <div className="empty-note">
+            Waiting for the press.
+            <br />
+            <small>
+              {room.mode === "rehearsal"
+                ? "Add a sample contribution below."
+                : "Ask chat to use the commands below."}
+            </small>
+          </div>
+        )}
+      </div>
+      <button
+        className="text-button"
+        disabled={disabled || (!room.featured && !room.spin)}
+        onClick={() => perform(() => act("clear"))}
+      >
+        Clear question & talking point
+      </button>
+    </section>
+  );
+  const roomLinks = room && key && (
+    <section className="share-panel panel">
+      <div>
+        <h2>Bring your partner. Leave the press outside.</h2>
+        <p>
+          The creator invite grants full controls to your partner or moderator.
+          Keep it off-stream.
+        </p>
+        <button
+          className="secondary"
+          onClick={() =>
+            perform(() =>
+              copy(
+                location.origin +
+                  "/room/" +
+                  code +
+                  "?view=creator#key=" +
+                  encodeURIComponent(key),
+                "invite",
+              ),
+            )
+          }
+        >
+          {copied === "invite"
+            ? "Copied invite"
+            : "Copy private creator invite"}
+        </button>
+        <button
+          className="secondary"
+          onClick={() =>
+            perform(() =>
+              copy(
+                location.origin +
+                  "/room/" +
+                  code +
+                  "?view=moderator#key=" +
+                  encodeURIComponent(key),
+                "moderator",
+              ),
+            )
+          }
+        >
+          {copied === "moderator"
+            ? "Copied moderator invite"
+            : "Copy moderator invite"}
+        </button>
+        <small className="invite-note">
+          Both private invites grant the same room controls. They open different
+          workspaces.
+        </small>
+      </div>
+      <div>
+        <h3>Audience links</h3>
+        <button
+          className="secondary"
+          onClick={() =>
+            perform(() => copy(location.origin + "/view/" + code, "viewer"))
+          }
+        >
+          {copied === "viewer" ? "Copied viewer link" : "Copy viewer link"}
+        </button>
+        <p>
+          Public viewer page and OBS source never show pending questions or
+          private advice.
+        </p>
+        <h3>OBS browser source</h3>
+        <p>
+          Transparent background. Set the source to 1920 × 1080. Only approved
+          public content appears.
+        </p>
+        <button
+          className="secondary"
+          onClick={() =>
+            perform(() => copy(location.origin + "/overlay/" + code, "overlay"))
+          }
+        >
+          {copied === "overlay" ? "Copied overlay URL" : "Copy overlay URL"}
+        </button>{" "}
+        <a href={"/overlay/" + code} target="_blank" rel="noreferrer">
+          Preview overlay
+        </a>
+      </div>
+    </section>
+  );
+  const channels = room && room.mode === "live" && key && (
+    <section className="channel-bar panel">
+      <div>
+        <strong>Your communities</strong>
+        <small>Each creator connects their own Twitch account.</small>
+      </div>
+      {room.channels.map((c, i) => (
+        <div key={i} className="channel">
+          <span>
+            {room.names[i]}
+            <small>
+              {c.channel ? "@" + c.channel + " — " : ""}
+              {c.status.replaceAll("_", " ")}
+            </small>
+          </span>
+          <button
+            className="secondary"
+            disabled={disabled || !config.twitch_configured}
+            onClick={() =>
+              perform(async () => {
+                const result = await api(prefix + "/twitch/start", key, {
+                  slot: i,
+                });
+                location.href = result.url;
+              })
+            }
+          >
+            {c.status === "connected" ? "Reconnect" : "Connect Twitch"}
+          </button>
+          {c.channel && (
+            <button
+              className="text-button"
+              disabled={disabled}
+              onClick={() =>
+                perform(async () => {
+                  await api(prefix + "/twitch/disconnect", key, {
+                    slot: i,
+                  });
+                  await refresh();
+                })
+              }
+            >
+              Disconnect
+            </button>
+          )}
+        </div>
+      ))}
+      {!config.twitch_configured && (
+        <p className="muted">
+          Server setup required: add Twitch app credentials to .env and restart.
+          See the README.
+        </p>
+      )}
+    </section>
+  );
+  const sampleInput = room && key && room.mode === "rehearsal" && (
+    <details className="panel rehearsal-tools">
+      <summary>Add a sample contribution</summary>
+      <p className="muted">
+        Rehearsal only. These are not real Twitch messages.
+      </p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          perform(async () => {
+            await api(prefix + "/rehearsal", key, {
+              kind: sampleKind,
+              text: sampleText,
+            });
+            setSampleText("");
+            await refresh();
+          });
+        }}
+      >
+        <label>
+          Contribution type
+          <select
+            value={sampleKind}
+            onChange={(e) => setSampleKind(e.target.value)}
+          >
+            {Object.entries(kindNames).map(([k, v]) => (
+              <option value={k} key={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Message
+          <textarea
+            value={sampleText}
+            maxLength={280}
+            onChange={(e) => setSampleText(e.target.value)}
+            required
+          />
+        </label>
+        <button disabled={disabled || !sampleText.trim()} className="secondary">
+          Add to inbox
+        </button>
+      </form>
+    </details>
+  );
+  const chatGuide = (
+    <section className="chat-guide">
+      <h3>Give chat the floor</h3>
+      <p>
+        <code>!question</code> Ask a difficult question
+      </p>
+      <p>
+        <code>!spin</code> Suggest a terrible talking point
+      </p>
+      <p>
+        <code>!incident</code> Pitch the next fictional disaster
+      </p>
+      <small>
+        One contribution per viewer every 10 seconds. Keep it fictional, kind,
+        and under 280 characters.
+      </small>
+    </section>
+  );
   if (overlay)
     return (
       <main className="overlay-shell">
@@ -308,27 +809,29 @@ function App() {
   return (
     <>
       <header className="app-header">
-        <a className="brand" href="/">
-          <span className="brand-mark">
-            dc<span>.</span>
-          </span>
-          <span>
-            damage control<small>My partner said what?</small>
-          </span>
-        </a>
-        <div className="header-actions">
-          {room && <span className="room-code">Room {code}</span>}
-          <button className="text-button" onClick={() => setHelp(true)}>
-            How to play
-          </button>
-          {room && key && (
-            <button className="secondary" onClick={() => setSharing(!sharing)}>
-              Invite & overlay
+        <div className="page-frame header-content">
+          <a className="brand" href="/">
+            <span className="brand-mark">
+              dc<span>.</span>
+            </span>
+            <span>
+              damage control<small>My partner said what?</small>
+            </span>
+          </a>
+          <div className="header-actions">
+            {room && <span className="room-code">Room {code}</span>}
+            <button className="text-button" onClick={() => setHelp(true)}>
+              How to play
             </button>
-          )}
+            {room && key && (
+              <button className="secondary" onClick={() => setView("setup")}>
+                Room setup
+              </button>
+            )}
+          </div>
         </div>
       </header>
-      <main className="shell">
+      <main className="shell page-frame">
         {(error || connectionError) && (
           <div className="alert" role="alert">
             {error || connectionError}
@@ -464,8 +967,20 @@ function App() {
           <>
             <div className="studio-heading">
               <div>
-                <span className="section-kicker">The control room</span>
-                <h1>Keep your stories straight.</h1>
+                <span className="section-kicker">
+                  {key
+                    ? `Round ${room.round} / ${phaseNames[room.phase]}`
+                    : "From the audience"}
+                </span>
+                <h1>
+                  {!key
+                    ? "The press is listening."
+                    : view === "moderator"
+                      ? "Give them a good question."
+                      : view === "setup"
+                        ? "Behind the conference."
+                        : "Keep your stories straight."}
+                </h1>
               </div>
               <span
                 className={
@@ -480,12 +995,6 @@ function App() {
                 {status}
               </span>
             </div>
-            {!key && (
-              <div className="alert">
-                You’re viewing the public room. Ask your partner for the private
-                creator invite to access controls.
-              </div>
-            )}
             {notice && (
               <div className="notice" role="status">
                 {notice === "connected"
@@ -493,521 +1002,115 @@ function App() {
                   : "Twitch connection was not completed. Check the app configuration and try again."}
               </div>
             )}
-            {sharing && key && (
-              <section className="share-panel panel">
-                <div>
-                  <h2>Bring your partner. Leave the press outside.</h2>
-                  <p>
-                    The creator invite grants full controls to your partner or
-                    moderator. Keep it off-stream.
-                  </p>
+            {key && (
+              <nav className="workspace-tabs" aria-label="Studio workspace">
+                {(["creator", "moderator", "setup"] as const).map((name) => (
                   <button
-                    className="secondary"
-                    onClick={() =>
-                      perform(() =>
-                        copy(
-                          location.origin +
-                            "/room/" +
-                            code +
-                            "#key=" +
-                            encodeURIComponent(key),
-                          "invite",
-                        ),
-                      )
-                    }
+                    key={name}
+                    type="button"
+                    aria-current={view === name ? "page" : undefined}
+                    onClick={() => setView(name)}
                   >
-                    {copied === "invite"
-                      ? "Copied invite"
-                      : "Copy private creator invite"}
+                    {name === "creator"
+                      ? "Creator"
+                      : name === "moderator"
+                        ? "Moderator"
+                        : "Room setup"}
+                    {name === "moderator" && !!room.queue?.length && (
+                      <span className="tab-count">{room.queue.length}</span>
+                    )}
                   </button>
-                </div>
-                <div>
-                  <h3>OBS browser source</h3>
-                  <p>
-                    Transparent background. Set the source to 1920 × 1080. Only
-                    approved public content appears.
-                  </p>
-                  <button
-                    className="secondary"
-                    onClick={() =>
-                      perform(() =>
-                        copy(location.origin + "/overlay/" + code, "overlay"),
-                      )
-                    }
-                  >
-                    {copied === "overlay"
-                      ? "Copied overlay URL"
-                      : "Copy overlay URL"}
-                  </button>{" "}
-                  <a href={"/overlay/" + code} target="_blank" rel="noreferrer">
-                    Preview overlay
-                  </a>
-                </div>
-              </section>
-            )}
-            {room.mode === "live" && key && (
-              <section className="channel-bar panel">
-                <div>
-                  <strong>Your communities</strong>
-                  <small>Each creator connects their own Twitch account.</small>
-                </div>
-                {room.channels.map((c, i) => (
-                  <div key={i} className="channel">
-                    <span>
-                      {room.names[i]}
-                      <small>
-                        {c.channel ? "@" + c.channel + " — " : ""}
-                        {c.status.replaceAll("_", " ")}
-                      </small>
-                    </span>
-                    <button
-                      className="secondary"
-                      disabled={disabled || !config.twitch_configured}
-                      onClick={() =>
-                        perform(async () => {
-                          const result = await api(
-                            prefix + "/twitch/start",
-                            key,
-                            { slot: i },
-                          );
-                          location.href = result.url;
-                        })
-                      }
-                    >
-                      {c.status === "connected"
-                        ? "Reconnect"
-                        : "Connect Twitch"}
-                    </button>
-                    {c.channel && (
-                      <button
-                        className="text-button"
-                        disabled={disabled}
-                        onClick={() =>
-                          perform(async () => {
-                            await api(prefix + "/twitch/disconnect", key, {
-                              slot: i,
-                            });
-                            await refresh();
-                          })
-                        }
-                      >
-                        Disconnect
-                      </button>
-                    )}
-                  </div>
                 ))}
-                {!config.twitch_configured && (
-                  <p className="muted">
-                    Server setup required: add Twitch app credentials to .env
-                    and restart. See the README.
-                  </p>
-                )}
-              </section>
+              </nav>
             )}
-            <div className="studio-grid">
-              <div className="main-column">
-                <div className="preview-heading">
-                  <span>Audience preview</span>
-                  <small>Talking points stay in your control room</small>
-                </div>
+            {!key ? (
+              <div className="viewer-workspace">
+                <p className="workspace-intro">
+                  Watch the conference and help build the next joke in Twitch
+                  chat.
+                </p>
                 {stage}
-                {key && (
-                  <section className="round-controls panel">
-                    <div className="phase-track">
-                      {phases.map((p, i) => (
-                        <span
-                          key={p}
-                          className={
-                            p === room.phase
-                              ? "current"
-                              : i < phases.indexOf(room.phase)
-                                ? "complete"
-                                : ""
-                          }
-                        >
-                          {i + 1}
-                          <small>{phaseNames[p]}</small>
-                        </span>
-                      ))}
-                    </div>
-                    <div className="control-row">
-                      <div className="timer">
-                        <strong>
-                          {String(Math.floor(remaining / 60)).padStart(2, "0")}:
-                          {String(remaining % 60).padStart(2, "0")}
-                        </strong>
-                        <button
-                          className="text-button"
-                          disabled={disabled || !isPerforming}
-                          onClick={() => perform(() => act("timer"))}
-                        >
-                          {remaining === 0
-                            ? "Restart 30s timer"
-                            : room.deadline
-                              ? "Pause timer"
-                              : room.remaining !== null
-                                ? "Resume timer"
-                                : "Start 30s timer"}
-                        </button>
-                      </div>
-                      <button
-                        className="secondary"
-                        disabled={disabled || !isPerforming}
-                        onClick={() => perform(() => act("turn"))}
-                      >
-                        Pass the mic
-                      </button>
-                      <button
-                        className="primary"
-                        disabled={disabled}
-                        onClick={() =>
-                          perform(() =>
-                            act(
-                              room.phase === "finished"
-                                ? "new_round"
-                                : "advance",
-                            ),
-                          )
-                        }
-                      >
-                        {nextNames[room.phase]}
-                      </button>
-                    </div>
-                    <p className="muted">
-                      The timer is a cue, not a cutoff. Advance when the joke
-                      lands.
-                    </p>
-                  </section>
-                )}
-                {key && room.phase === "briefing" && (
-                  <section className="panel incident-picker">
-                    <h2>Choose your disaster</h2>
-                    <div className="incident-options">
-                      {config.incidents.map((s) => (
-                        <button
-                          disabled={disabled}
-                          key={s}
-                          className={s === room.incident ? "selected" : ""}
-                          onClick={() =>
-                            perform(() => act("incident", { text: s }))
-                          }
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        perform(async () => {
-                          await act("incident", { text: incident });
-                          setIncident("");
-                        });
-                      }}
-                    >
-                      <label>
-                        Or write your own fictional incident
-                        <textarea
-                          maxLength={280}
-                          value={incident}
-                          onChange={(e) => setIncident(e.target.value)}
-                          placeholder="Our company would like to address…"
-                        />
-                      </label>
-                      <button
-                        className="secondary"
-                        disabled={disabled || !incident.trim()}
-                      >
-                        Use this incident
-                      </button>
-                    </form>
-                  </section>
-                )}
-                {key && (
-                  <section className="panel adviser">
-                    <div>
-                      <span className="section-kicker">For your eyes only</span>
-                      <h2>Your PR adviser says…</h2>
-                    </div>
-                    <p>
-                      {room.spin?.text ||
-                        "Approve a talking point from the inbox. Work it into your answer without breaking character."}
-                    </p>
-                    {room.spin && (
-                      <small>
-                        Suggested by {room.spin.author} / {room.spin.source}
-                      </small>
-                    )}
-                  </section>
+                <details className="viewer-record">
+                  <summary>The official record ({room.claims.length})</summary>
+                  {record}
+                </details>
+                {chatGuide}
+              </div>
+            ) : view === "setup" ? (
+              <div className="setup-workspace">
+                <div className="workspace-intro">
+                  <h2>Get the room ready.</h2>
+                  <p>
+                    Connect channels, invite your team, and choose the incident.
+                    Then return to the creator or moderator workspace.
+                  </p>
+                </div>
+                {channels}
+                {roomLinks}
+                {room.phase === "briefing" ? (
+                  incidentPicker
+                ) : (
+                  <p className="notice">
+                    The incident is locked for this round. Finish the conference
+                    to choose another.
+                  </p>
                 )}
               </div>
-              <aside className="side-column">
-                <section className="panel record">
-                  <div className="panel-heading">
-                    <h2>You said…</h2>
-                    <span className="count">{room.claims.length}/12</span>
+            ) : (
+              <>
+                <p className="workspace-intro">
+                  {view === "creator"
+                    ? "Focus on your partner and the question. Your moderator handles the press."
+                    : "Choose what goes on-air and keep a faithful record of what was said."}
+                </p>
+                <div className={"workspace workspace-" + view}>
+                  <div className="workspace-primary">
+                    {view === "creator" ? (
+                      <>
+                        {stage}
+                        {advice}
+                        {room.phase === "briefing" && (
+                          <button
+                            className="text-button"
+                            onClick={() => setView("setup")}
+                          >
+                            Change the incident in room setup
+                          </button>
+                        )}
+                        {controls}
+                      </>
+                    ) : (
+                      <>
+                        {inbox}
+                        {sampleInput}
+                        <details className="audience-peek">
+                          <summary>Preview the audience display</summary>
+                          {stage}
+                        </details>
+                        {controls}
+                      </>
+                    )}
                   </div>
-                  <p className="muted">
-                    An official record of unfortunate commitments.
-                  </p>
-                  {room.claims.length === 0 ? (
-                    <div className="empty-note">
-                      The record is clean.
-                      <br />
-                      <small>Enjoy that while it lasts.</small>
-                    </div>
-                  ) : (
-                    <ol className="claims">
-                      {room.claims.map((c, i) => (
-                        <li key={c.id}>
-                          <span className="receipt-number">
-                            {String(i + 1).padStart(2, "0")}
-                          </span>
-                          <div>
-                            <blockquote>“{c.text}”</blockquote>
-                            <small>
-                              {c.speaker}
-                              {c.corrected ? " / Officially corrected" : ""}
-                            </small>
-                            {c.original && (
-                              <p className="original">
-                                Previously: {c.original}
-                              </p>
-                            )}
-                            {key && !room.correction_used && isPerforming && (
-                              <button
-                                className="text-button correction-link"
-                                disabled={disabled}
-                                onClick={() => {
-                                  setCorrectionId(c.id);
-                                  setCorrection("");
-                                }}
-                              >
-                                Use correction here
-                              </button>
-                            )}
-                          </div>
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                  {key && (
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        perform(async () => {
-                          await act("claim", { text: claim });
-                          setClaim("");
-                        });
-                      }}
-                    >
-                      <label>
-                        Pin what was actually said
-                        <textarea
-                          value={claim}
-                          onChange={(e) => setClaim(e.target.value)}
-                          maxLength={280}
-                          placeholder="We guarantee every passenger a slice of cake."
-                        />
-                      </label>
-                      <button
-                        className="secondary full"
-                        disabled={disabled || !isPerforming || !claim.trim()}
-                      >
-                        Pin to the record
-                      </button>
-                    </form>
-                  )}
-                  <div
-                    className={
-                      "correction-meter " + (room.correction_used ? "used" : "")
-                    }
-                  >
-                    <span>{room.correction_used ? "0" : "1"}</span>
-                    <div>
-                      <strong>Shared official correction</strong>
-                      <small>
-                        {room.correction_used
-                          ? "You’re committed to everything else."
-                          : "One lifeline. Use it together."}
-                      </small>
-                    </div>
-                  </div>
-                </section>
-                {key && (
-                  <section className="panel inbox">
-                    <div className="panel-heading">
-                      <h2>The press inbox</h2>
-                      <span className="count">{room.queue?.length || 0}</span>
-                    </div>
-                    <p className="muted">
-                      Nothing goes on-air until you approve it.
-                    </p>
-                    <div
-                      className="filters"
-                      role="group"
-                      aria-label="Filter contributions"
-                    >
-                      {["all", "question", "spin", "incident"].map((f) => (
-                        <button
-                          key={f}
-                          className={filter === f ? "active" : ""}
-                          onClick={() => setFilter(f)}
-                        >
-                          {
-                            {
-                              all: "All",
-                              question: "Questions",
-                              spin: "PR",
-                              incident: "Incidents",
-                            }[f]
-                          }
-                        </button>
-                      ))}
-                    </div>
-                    <div className="queue-list">
-                      {room.queue
-                        ?.filter((q) => filter === "all" || q.kind === filter)
-                        .map((q) => (
-                          <article className="queue-item" key={q.id}>
-                            <div>
-                              <span className={"kind " + q.kind}>
-                                {kindNames[q.kind]}
-                              </span>
-                              <small>{q.source}</small>
-                            </div>
-                            <p>{q.text}</p>
-                            <small>From {q.author}</small>
-                            <div className="queue-actions">
-                              <button
-                                className="secondary"
-                                disabled={
-                                  disabled ||
-                                  (q.kind === "incident"
-                                    ? room.phase !== "briefing"
-                                    : !["opening", "questions"].includes(
-                                        room.phase,
-                                      ))
-                                }
-                                onClick={() =>
-                                  perform(() => act("approve", { id: q.id }))
-                                }
-                              >
-                                {q.kind === "spin"
-                                  ? "Send to adviser"
-                                  : q.kind === "incident"
-                                    ? "Use incident"
-                                    : "Put on-air"}
-                              </button>
-                              <button
-                                className="text-button"
-                                disabled={disabled}
-                                onClick={() =>
-                                  perform(() => act("reject", { id: q.id }))
-                                }
-                              >
-                                Dismiss
-                              </button>
-                            </div>
-                          </article>
-                        ))}
-                      {!room.queue?.some(
-                        (q) => filter === "all" || q.kind === filter,
-                      ) && (
-                        <div className="empty-note">
-                          Waiting for the press.
-                          <br />
-                          <small>
-                            {room.mode === "rehearsal"
-                              ? "Add a sample contribution below."
-                              : "Ask chat to use the commands below."}
-                          </small>
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      className="text-button"
-                      disabled={disabled || (!room.featured && !room.spin)}
-                      onClick={() => perform(() => act("clear"))}
-                    >
-                      Clear question & talking point
-                    </button>
-                  </section>
-                )}
-                <section className="chat-guide">
-                  <h3>Give chat the floor</h3>
-                  <p>
-                    <code>!question</code> Ask a difficult question
-                  </p>
-                  <p>
-                    <code>!spin</code> Suggest a terrible talking point
-                  </p>
-                  <p>
-                    <code>!incident</code> Pitch the next fictional disaster
-                  </p>
-                  <small>
-                    One contribution per viewer every 10 seconds. Keep it
-                    fictional, kind, and under 280 characters.
-                  </small>
-                </section>
-                {key && room.mode === "rehearsal" && (
-                  <details className="panel rehearsal-tools">
-                    <summary>Add a sample contribution</summary>
-                    <p className="muted">
-                      Rehearsal only. These are not real Twitch messages.
-                    </p>
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        perform(async () => {
-                          await api(prefix + "/rehearsal", key, {
-                            kind: sampleKind,
-                            text: sampleText,
-                          });
-                          setSampleText("");
-                          await refresh();
-                        });
-                      }}
-                    >
-                      <label>
-                        Contribution type
-                        <select
-                          value={sampleKind}
-                          onChange={(e) => setSampleKind(e.target.value)}
-                        >
-                          {Object.entries(kindNames).map(([k, v]) => (
-                            <option value={k} key={k}>
-                              {v}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        Message
-                        <textarea
-                          value={sampleText}
-                          maxLength={280}
-                          onChange={(e) => setSampleText(e.target.value)}
-                          required
-                        />
-                      </label>
-                      <button
-                        disabled={disabled || !sampleText.trim()}
-                        className="secondary"
-                      >
-                        Add to inbox
-                      </button>
-                    </form>
-                  </details>
-                )}
-              </aside>
-            </div>
+                  <aside className="workspace-secondary">
+                    {record}
+                    {view === "moderator" && (
+                      <details className="command-help">
+                        <summary>Chat commands</summary>
+                        {chatGuide}
+                      </details>
+                    )}
+                  </aside>
+                </div>
+              </>
+            )}
           </>
         )}
       </main>
       <footer className="app-footer">
-        <b>damage control.</b>
-        <span>Fictional disasters. Real teamwork.</span>
+        <div className="page-frame footer-content">
+          <b>damage control.</b>
+          <span>Fictional disasters. Real teamwork.</span>
+        </div>
       </footer>
       {help && (
         <dialog

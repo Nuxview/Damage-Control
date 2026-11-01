@@ -2,7 +2,7 @@
 
 ## A 5-minute rehearsal
 
-Use two performers in a call and a moderator with the private creator invite.
+Use two performers in a call and a moderator with the private moderator invite (from Room setup). Keep the performers in the Creator workspace and the moderator in the Moderator workspace.
 
 1. Choose the airline/wedding incident and start the opening statement.
 2. Creator 1 explains it. Moderator pins one actual claim.
