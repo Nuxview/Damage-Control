@@ -1,0 +1,16 @@
+[project]
+name = "damage-control"
+version = "0.1.0"
+description = "Two streamers. One terrible statement."
+requires-python = ">=3.12"
+dependencies = ["flask>=3.1,<4", "requests>=2.32,<3", "websocket-client>=1.8,<2", "waitress>=3,<4", "python-dotenv>=1,<2"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.9"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
