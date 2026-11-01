@@ -1,12 +1,12 @@
 .PHONY: setup build run test
 setup:
 	uv sync --locked
-	npm --prefix frontend ci
+	pnpm --dir frontend install --frozen-lockfile
 build:
-	npm --prefix frontend run build
+	pnpm --dir frontend run build
 run:
 	uv run python -m backend.app
 test:
 	uv run pytest -q
 	uv run ruff check backend tests
-	npm --prefix frontend run build
+	pnpm --dir frontend run build

@@ -203,7 +203,10 @@ def create_app(database=None):
         if path.startswith("api/"):
             raise GameError("API route not found.", 404)
         if not (dist / "index.html").exists():
-            return "Build the frontend first: cd frontend && npm ci && npm run build", 503
+            return (
+                "Build the frontend first: cd frontend && pnpm install --frozen-lockfile && pnpm run build",
+                503,
+            )
         if path.startswith("assets/"):
             return send_from_directory(dist, path)
         return send_from_directory(dist, "index.html")

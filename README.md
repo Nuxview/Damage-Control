@@ -6,13 +6,13 @@ A playable Flask + React/TypeScript MVP built with OpenAI Codex. No runtime AI, 
 
 ## Run locally
 
-Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 22.12+.
+Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 22.12+, and pnpm 12.9.1 (pinned in `frontend/package.json`).
 
 ```bash
 uv sync --locked
 cd frontend
-npm ci
-npm run build
+pnpm install --frozen-lockfile
+pnpm run build
 cd ..
 cp .env.example .env
 uv run python -m backend.app
@@ -20,7 +20,7 @@ uv run python -m backend.app
 
 Open **http://localhost:5000**. Choose **Rehearsal**, enter two names, and open the studio. Rehearsal includes three explicitly labeled sample contributions; it never connects to Twitch. Use “Add a sample contribution” for more. No credentials are needed to play a complete rehearsal round.
 
-For frontend development, run `npm run dev` in `frontend/` alongside the backend and open the Vite URL. `/api` is proxied to Flask. For Twitch OAuth development, use the built app on port 5000 so the browser cookie and registered callback share one origin.
+For frontend development, run `pnpm run dev` in `frontend/` alongside the backend and open the Vite URL. `/api` is proxied to Flask. For Twitch OAuth development, use the built app on port 5000 so the browser cookie and registered callback share one origin.
 
 ## Play a round
 
@@ -70,7 +70,7 @@ Primary references: [Twitch OAuth](https://dev.twitch.tv/docs/authentication/get
 ```bash
 uv run pytest -q
 uv run ruff check backend tests
-cd frontend && npm run build
+cd frontend && pnpm run build
 ```
 
 Tests cover the round lifecycle, moderation/public privacy, concurrent correction attempts, persistence, authorization, OAuth state binding, command parsing, contribution limits, and Shared Chat deduplication. TypeScript is checked as part of the frontend build.
