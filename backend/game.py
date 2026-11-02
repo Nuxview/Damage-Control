@@ -203,11 +203,7 @@ class Store:
                     "reject",
                     "claim",
                     "clear",
-                    "advance",
-                    "turn",
-                    "timer",
                     "correct",
-                    "new_round",
                 },
             }
             if not isinstance(action, str) or action not in allowed[role]:

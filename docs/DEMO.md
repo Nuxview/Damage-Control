@@ -2,9 +2,9 @@
 
 ## A 5-minute rehearsal
 
-Use two performers in a call and a moderator with the private moderator invite (from Room setup). Each link opens a dedicated participant page. Creators and moderators have separate credentials and permissions.
+Use two performers in a call and a moderator with the private moderator invite (from Room setup). Each link opens a dedicated participant page. Creators handle statements, mic handoffs and timers; the moderator publishes contributions and records claims. Creators and moderators have separate credentials and permissions.
 
-1. Create a rehearsal room. In setup, share all three participant links and have each page confirmed. Choose the airline/wedding incident, finish setup, then start the opening statement. For a solo check, open the creator, moderator, and audience links in separate tabs.
+1. Create a rehearsal room. Follow setup one step at a time: share each participant link and have each page confirmed. Use Back/Next to revisit a step. Choose the airline/wedding incident, finish setup, then start the opening statement. For a solo check, open the creator, moderator, and audience links in separate tabs.
 2. Creator 1 explains it. Moderator pins one actual claim.
 3. Moderator sends the destination-wedding talking point to the private adviser panel.
 4. Open the floor. Feature “Does the bride know?” and pass the mic to Creator 2.

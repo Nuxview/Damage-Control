@@ -27,22 +27,22 @@ For frontend development, run `pnpm run dev` in `frontend/` alongside the backen
 1. **Briefing:** select one of six fictional incidents, write your own, or approve a viewer's incident.
 2. **Opening:** Creator 1 gives the opening statement. The 30-second timer is a cue; it does not force a transition.
 3. **Questions:** approve journalist questions for the audience display. Approve PR talking points for the private creator/adviser panel. Pass the mic between creators.
-4. **You said…:** a host or moderator pins a faithful summary of what was actually said. One shared correction can change a claim; its original is retained in the record.
+4. **You said…:** the moderator pins a faithful summary of what was actually said. One shared correction can change a claim; its original is retained in the record.
 5. **Closing:** deliver one explanation that fits the record. Close the conference, then start the next round.
 
-Keep voice/video in your usual call or Twitch Stream Together. Damage Control does not capture cameras, microphones, or stream footage. A moderator can run the controls while both creators perform.
+Keep voice/video in your usual call or Twitch Stream Together. Damage Control does not capture cameras, microphones, or stream footage. The moderator reviews contributions and records claims while the creators handle the performance.
 
 Each participant gets a dedicated page, with no role-switching tabs:
 
 - **Creator** (`/room/ROOM`): the situation, current question, approved private advice, performance controls, and the claim record. Creators can also configure the room and share invites. Pending contributions never reach this page’s API response.
-- **Moderator** (`/moderator/ROOM`): the press inbox, publishing controls, claim entry, correction and round controls. Moderators have a separate credential and cannot fetch creator invites, edit setup, or connect/disconnect Twitch accounts.
+- **Moderator** (`/moderator/ROOM`): the press inbox, publishing controls, claim entry and correction. Statement transitions, mic handoffs, timers and new rounds are creator-only. Moderators see no performance controls and the server rejects those actions. Moderators have a separate credential and cannot fetch creator invites, edit setup, or connect/disconnect Twitch accounts.
 - **Viewer** (`/view/ROOM`): approved public content and chat instructions. This route ignores saved private credentials, even in the creator’s browser.
 
 Permissions are enforced by the backend, not by the page URL. Both creators share the creator credential; this MVP does not assign permissions to individual people or creator slots.
 
 ### Set up the room before performing
 
-New rooms open directly at **Room setup** (`/room/ROOM/setup`), available only to creators:
+New rooms open directly at **Room setup** (`/room/ROOM/setup`), available only to creators. A guided flow shows one participant or task at a time, with Back/Next navigation. It resumes at the first incomplete step after a refresh. You can continue sharing links while confirmations are pending; the final check still requires everything below:
 
 1. Copy and share the creator, moderator, and viewer links. Tick **I’ve shared this link** after sending each one; copying alone does not mark it shared.
 2. Ask your partner, moderator, and one viewer to press **I can see the room** on their respective pages. The checklist updates automatically. **Page checked** records a one-time confirmation, not ongoing presence or a successful Twitch chat test. For a solo rehearsal, use the **Open … page** links in separate tabs and confirm all three.

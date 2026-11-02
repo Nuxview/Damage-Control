@@ -12,7 +12,7 @@ def room(tmp_path):
     store = Store(str(tmp_path / "game.sqlite3"))
     code, key = store.create(["Alex", "Jamie"], "rehearsal")
     finish_setup(store, code, key)
-    return store, code, store.invite(code, key)
+    return store, code, key, store.invite(code, key)
 
 
 def finish_setup(store, code, key):
@@ -25,15 +25,15 @@ def finish_setup(store, code, key):
     store.action(code, key, "setup_complete", {})
 
 
-def start(store, code, key):
-    store.action(code, key, "advance", {})
+def start(store, code, creator):
+    store.action(code, creator, "advance", {})
 
 
 def test_private_inbox_and_advice_never_reach_public_view(room):
-    store, code, key = room
+    store, code, creator, key = room
     store.submit(code, "spin", "Blame the cake", "Viewer", "channel", "1", "m1")
     item = store.view(code, key)["queue"][0]
-    start(store, code, key)
+    start(store, code, creator)
     store.action(code, key, "approve", {"id": item["id"]})
     public = store.view(code)
     assert "spin" not in public and "queue" not in public and "key_hash" not in public
@@ -42,8 +42,8 @@ def test_private_inbox_and_advice_never_reach_public_view(room):
 
 
 def test_claim_correction_is_shared_atomic_and_keeps_original(room):
-    store, code, key = room
-    start(store, code, key)
+    store, code, creator, key = room
+    start(store, code, creator)
     store.action(code, key, "claim", {"text": "All guests get a room"})
     claim_id = store.view(code)["claims"][0]["id"]
 
@@ -62,15 +62,15 @@ def test_claim_correction_is_shared_atomic_and_keeps_original(room):
 
 
 def test_invalid_correction_does_not_spend_lifeline(room):
-    store, code, key = room
-    start(store, code, key)
+    store, code, creator, key = room
+    start(store, code, creator)
     with pytest.raises(GameError):
         store.action(code, key, "correct", {"id": "missing", "text": "oops"})
     assert not store.view(code)["correction_used"]
 
 
 def test_duplicate_shared_chat_message_and_cooldown(room, monkeypatch):
-    store, code, key = room
+    store, code, _creator, key = room
     monkeypatch.setattr("backend.game.time.time", lambda: 1000)
     assert store.submit(code, "question", "Why?", "A", "one", "1", "m1")
     assert not store.submit(code, "question", "Why?", "A", "two", "1", "m1")
@@ -81,7 +81,7 @@ def test_duplicate_shared_chat_message_and_cooldown(room, monkeypatch):
 
 
 def test_queue_limit_and_length_validation(room):
-    store, code, key = room
+    store, code, _creator, key = room
     for i in range(101):
         store.submit(code, "question", "Question", "A", "one", str(i), str(i))
     assert len(store.view(code, key)["queue"]) == 100
@@ -90,30 +90,30 @@ def test_queue_limit_and_length_validation(room):
 
 
 def test_round_lifecycle_and_reset(room):
-    store, code, key = room
+    store, code, creator, _key = room
     with pytest.raises(GameError):
-        store.action(code, key, "new_round", {})
+        store.action(code, creator, "new_round", {})
     for phase in ["opening", "questions", "closing", "finished"]:
-        store.action(code, key, "advance", {})
+        store.action(code, creator, "advance", {})
         assert store.view(code)["phase"] == phase
     with pytest.raises(GameError):
-        store.action(code, key, "advance", {})
+        store.action(code, creator, "advance", {})
     assert not store.submit(code, "question", "Late", "A", "one", "1", "1")
-    store.action(code, key, "new_round", {})
+    store.action(code, creator, "new_round", {})
     assert store.view(code)["round"] == 2
     assert store.view(code)["phase"] == "briefing"
     assert store.view(code)["claims"] == []
 
 
 def test_approval_is_explicit_and_phase_guarded(room):
-    store, code, key = room
+    store, code, creator, key = room
     store.submit(code, "question", "Does the bride know?", "A", "one", "1", "1")
     item = store.view(code, key)["queue"][0]
     assert store.view(code)["featured"] is None
     with pytest.raises(GameError):
         store.action(code, key, "approve", {"id": item["id"]})
     assert len(store.view(code, key)["queue"]) == 1
-    start(store, code, key)
+    start(store, code, creator)
     store.action(code, key, "approve", {"id": item["id"]})
     assert store.view(code)["featured"]["text"] == "Does the bride know?"
     with pytest.raises(GameError):
@@ -121,8 +121,8 @@ def test_approval_is_explicit_and_phase_guarded(room):
 
 
 def test_state_survives_restart(room):
-    store, code, key = room
-    start(store, code, key)
+    store, code, creator, key = room
+    start(store, code, creator)
     store.action(code, key, "claim", {"text": "A permanent commitment"})
     database = store.db.execute("PRAGMA database_list").fetchone()[2]
     restored = Store(database)
@@ -130,8 +130,8 @@ def test_state_survives_restart(room):
 
 
 def test_connection_loss_pauses_timer(room):
-    store, code, key = room
-    start(store, code, key)
+    store, code, creator, _key = room
+    start(store, code, creator)
     Twitch(store, "client", "secret").pause(code)
     state = store.view(code)
     assert state["deadline"] is None and 0 < state["remaining"] <= 30
@@ -217,6 +217,26 @@ def test_moderator_cannot_change_setup(client, action):
             ).status_code
             == 403
         )
+
+
+@pytest.mark.parametrize("action", ["advance", "turn", "timer", "new_round"])
+def test_moderator_cannot_control_the_performance(client, action):
+    path, creator = create(client)
+    store = client.application.extensions["game"]
+    finish_setup(store, path.split("/")[-1], creator["X-Control-Key"])
+    moderator = {
+        "X-Control-Key": client.post(path + "/invites", headers=creator).json["moderator_key"]
+    }
+    before = client.get(path).json
+    response = client.post(path + "/actions", headers=moderator, json={"action": action})
+    assert response.status_code == 403
+    after = client.get(path).json
+    assert (after["phase"], after["turn"], after["round"], after["deadline"]) == (
+        before["phase"],
+        before["turn"],
+        before["round"],
+        before["deadline"],
+    )
 
 
 def test_setup_requires_sharing_real_page_checks_and_incident(client):
@@ -375,7 +395,7 @@ def test_reconnect_url_validation(url):
 
 
 def test_shared_chat_copies_and_stale_workers_are_ignored(room):
-    store, code, key = room
+    store, code, _creator, key = room
     twitch = Twitch(store, "client", "secret")
     worker = Worker(twitch, code, 0, {}, {"user_id": "123", "login": "alex"})
     twitch.workers[(code, 0)] = worker
@@ -395,20 +415,20 @@ def test_shared_chat_copies_and_stale_workers_are_ignored(room):
 
 
 def test_partner_cannot_advance_twice_from_the_same_screen(room):
-    store, code, key = room
+    store, code, creator, _key = room
     version = store.view(code)["control_version"]
-    store.action(code, key, "advance", {"expected_version": version})
+    store.action(code, creator, "advance", {"expected_version": version})
     with pytest.raises(GameError, match="partner changed"):
-        store.action(code, key, "advance", {"expected_version": version})
+        store.action(code, creator, "advance", {"expected_version": version})
     assert store.view(code)["phase"] == "opening"
 
 
 def test_expired_timer_can_restart(room, monkeypatch):
-    store, code, key = room
+    store, code, creator, _key = room
     monkeypatch.setattr("backend.game.time.time", lambda: 1000)
-    start(store, code, key)
+    start(store, code, creator)
     monkeypatch.setattr("backend.game.time.time", lambda: 1031)
-    store.action(code, key, "timer", {})
+    store.action(code, creator, "timer", {})
     assert store.view(code)["deadline"] == 1061
 
 
@@ -423,8 +443,8 @@ def test_bad_command_kind_returns_validation_error(client):
 def test_eventsub_migration_preserves_subscription_and_revocation_pauses(room, monkeypatch):
     import json
 
-    store, code, key = room
-    start(store, code, key)
+    store, code, creator, key = room
+    start(store, code, creator)
     manager = Twitch(store, "client", "secret")
     worker = Worker(
         manager,
