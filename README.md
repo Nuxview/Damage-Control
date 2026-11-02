@@ -18,7 +18,7 @@ cp .env.example .env
 uv run python -m backend.app
 ```
 
-Open **http://localhost:5000**. Choose **Rehearsal**, enter two names, and create the room. You land on **Room setup** first. Rehearsal includes three explicitly labeled sample contributions; it never connects to Twitch. The moderator can use “Add a sample contribution” for more. No Twitch credentials are needed to play a complete rehearsal round. For solo testing, open each participant link in a separate tab and confirm each page.
+Open **http://localhost:5000**. Choose **Rehearsal** and create the room. There are no name fields on the landing page; each creator enters their own name when joining. You land on **Room setup** first. Rehearsal includes three explicitly labeled sample contributions; it never connects to Twitch. The moderator can use “Add a sample contribution” for more. No Twitch credentials are needed to play a complete rehearsal round. For solo testing, open each participant link in a separate tab and confirm each page.
 
 For frontend development, run `pnpm run dev` in `frontend/` alongside the backend and open the Vite URL. `/api` is proxied to Flask. For Twitch OAuth development, use the built app on port 5000 so the browser cookie and registered callback share one origin.
 
@@ -42,13 +42,13 @@ Permissions are enforced by the backend, not by the page URL. Both creators shar
 
 ### Set up the room before performing
 
-New rooms open directly at **Room setup** (`/room/ROOM/setup`), available only to creators. A guided flow shows one participant or task at a time, with Back/Next navigation. It resumes at the first incomplete step after a refresh. You can continue sharing links while confirmations are pending; the final check still requires everything below:
+New rooms open directly at **Room setup** (`/room/ROOM/setup`), available only to creators. A guided flow shows one participant or task at a time, with Back/Next navigation. Live rooms start with Twitch authorization. It resumes at the first incomplete step after a refresh. You can continue sharing links while confirmations are pending; the final check still requires everything below:
 
-1. Copy and share the creator, moderator, and viewer links. Tick **I’ve shared this link** after sending each one; copying alone does not mark it shared.
-2. Ask your partner, moderator, and one viewer to press **I can see the room** on their respective pages. The checklist updates automatically. **Page checked** records a one-time confirmation, not ongoing presence or a successful Twitch chat test. For a solo rehearsal, use the **Open … page** links in separate tabs and confirm all three.
-3. In live rooms, each creator connects their own Twitch account. Both channel subscriptions must report **connected** before setup can finish. Rehearsal uses labeled sample contributions instead.
-4. Explicitly choose the fictional incident the creators will defend, or write your own.
-5. Press **Finish setup & enter creator page**. Then start the opening statement. The server blocks advancing a new room before setup is complete.
+1. In a live room, the first step shows **Connect Twitch** and whether app credentials were loaded. The `.env` client ID/secret identify the application; they do not connect anyone’s account. Each creator must authorize their own account. These controls are also on each creator’s page, so your invited partner can connect without searching setup. Both subscriptions must report **connected** before finishing. Rehearsal skips this step.
+2. Share the creator, moderator and audience links. The partner invite selects Creator 2; the host uses Creator 1. Each creator enters **their own name** and presses **Save name & confirm**. Confirming the host’s page does not count as the partner arriving. Slots are display preferences, not separate permissions.
+3. The moderator and one viewer press **I can see the room**. The status updates automatically; there is no “I’ve shared this link” checkbox. **Page checked** is a one-time acknowledgment, not ongoing presence or a Twitch chat test. For solo testing, use **Open … page** in separate tabs.
+4. Explicitly choose the fictional incident to defend, or write your own.
+5. Press **Finish setup & enter creator page**, then start the opening statement. The server blocks a new room until page confirmations and incident selection are complete.
 
 Setup progress survives refreshes and server restarts. Existing rooms remain playable; they are not forced through the new checklist. Open setup to copy a new moderator link: older shared-control invites remain creator credentials and do not acquire moderator restrictions automatically.
 
@@ -59,7 +59,7 @@ Open **Room setup** from the creator page:
 - **Private creator invite:** opens the creator page and allows room configuration. Keep it off-stream.
 - **Private moderator invite:** opens the moderator page with its own limited credential. Keep it off-stream too. A moderator cannot generate creator invites.
 - **Viewer link:** opens the read-only public page. It never shows the pending inbox or PR advice. Viewers can submit a page check; game contributions still come through Twitch chat.
-- **OBS browser source:** a read-only transparent overlay at `/overlay/ROOM`, under the optional setup disclosure. Set the source to **1920 × 1080**. It shows the incident, active spokesperson, approved question, correction status, and three most recent pinned claims. It never shows pending submissions or PR talking points.
+- **OBS browser source:** a read-only transparent overlay at `/overlay/ROOM`, under the optional setup disclosure. Set the source to **1920 × 1080**. It uses the same compact audience card as the moderator preview, including both creators, the active spokesperson, approved question, correction status and three most recent pinned claims. Unused canvas is transparent; the question is grouped with the incident rather than pushed to the bottom. It never shows pending submissions or PR talking points.
 
 Private credentials travel in URL fragments and are saved separately by role in that browser’s local storage. Never show private pages or invites on-stream. Treat invite links as credentials, not individual identities.
 
@@ -69,8 +69,8 @@ Both creators need to reach the **same running backend**. A localhost URL on you
 
 1. Register a **confidential** application in the [Twitch developer console](https://dev.twitch.tv/console/apps). Enable 2FA on the owning account as Twitch requires.
 2. Register the exact redirect URL `http://localhost:5000/api/twitch/callback` for local testing, or `https://YOUR-HOST/api/twitch/callback` for a hosted instance.
-3. Set `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, and `APP_BASE_URL` in `.env`, then restart the server.
-4. Create a **Live with Twitch** room. Each creator opens the private invite in their own browser and connects their own account in the matching creator slot. The second slot requires a different Twitch account.
+3. Set `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, and `APP_BASE_URL` in the repository-root `.env`, then start the server. The app reads this explicit path regardless of the launch directory and accepts UTF-8 files with or without a Windows BOM. Existing process environment values retain precedence.
+4. Create a **Live with Twitch** room. **Connect Twitch** appears in the first setup step and on creator pages. Click it to authorize your account; filling `.env` alone leaves the count at `0/2`. Each invited creator authorizes in their own browser, in their own slot. The second slot requires a different Twitch account. Open the app at the exact `APP_BASE_URL` origin before connecting, so the callback retains that browser’s room credentials.
 5. Wait for the channel statuses to say **connected**. Then have viewers type:
 
 ```text

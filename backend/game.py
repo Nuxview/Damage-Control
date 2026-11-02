@@ -24,7 +24,6 @@ KINDS = {"incident", "question", "spin"}
 
 def setup_state():
     return {
-        "shared": {role: False for role in ("creator", "moderator", "viewer")},
         "confirmed": {role: False for role in ("creator", "moderator", "viewer")},
         "incident_selected": False,
         "complete": False,
@@ -63,6 +62,8 @@ class Store:
         self.lock = threading.RLock()
 
     def create(self, names, mode):
+        if names is None:
+            names = ["Creator 1", "Creator 2"]
         if not isinstance(names, list) or len(names) != 2:
             raise GameError("Enter two creator names.")
         names = [text(n, "Creator name", 32) for n in names]
@@ -133,10 +134,13 @@ class Store:
             room["moderator_key_hash"] = hashlib.sha256(invite.encode()).hexdigest()
         return invite
 
-    def confirm(self, code, key=None):
+    def confirm(self, code, key=None, name=None, slot=None):
         with self.room(code, key, write=True) as room:
             role = self.role(room, key) if key else "viewer"
-            if "setup" in room:
+            if role == "creator" and slot is not None:
+                slot = slot_number(slot)
+                room["names"][slot] = text(name, "Your name", 32)
+            if "setup" in room and not (role == "creator" and slot == 0):
                 room["setup"]["confirmed"][role] = True
 
     def view(self, code, key=None):
@@ -148,6 +152,7 @@ class Store:
         result["role"] = role
         # Existing rooms remain playable without retroactively requiring a setup checklist.
         result.setdefault("setup", {**setup_state(), "complete": True})
+        result["setup"].pop("shared", None)
         if role != "moderator":
             result.pop("queue")
         if role == "viewer":
@@ -190,7 +195,6 @@ class Store:
             allowed = {
                 "creator": {
                     "incident",
-                    "share",
                     "setup_complete",
                     "advance",
                     "turn",
@@ -218,25 +222,12 @@ class Store:
                 room["incident"] = text(data.get("text"), "Incident")
                 if "setup" in room:
                     room["setup"]["incident_selected"] = True
-            elif action == "share":
-                participant = data.get("role")
-                if (
-                    participant not in ("creator", "moderator", "viewer")
-                    or type(data.get("shared")) is not bool
-                ):
-                    raise GameError("Choose a participant and whether their link was shared.")
-                if "setup" in room:
-                    room["setup"]["shared"][participant] = data["shared"]
             elif action == "setup_complete":
                 setup = room.get("setup")
                 if setup:
-                    if not (
-                        all(setup["shared"].values())
-                        and all(setup["confirmed"].values())
-                        and setup["incident_selected"]
-                    ):
+                    if not (all(setup["confirmed"].values()) and setup["incident_selected"]):
                         raise GameError(
-                            "Share and check all three links, then choose an incident.", 409
+                            "Check all three participant pages, then choose an incident.", 409
                         )
                     setup["complete"] = True
             elif action == "advance":

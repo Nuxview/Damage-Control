@@ -20,7 +20,6 @@ type Channel = { slot: number; status: string; channel: string | null };
 type Participant = "creator" | "moderator" | "viewer";
 type SetupStep = Participant | "channels" | "incident";
 type Setup = {
-  shared: Record<Participant, boolean>;
   confirmed: Record<Participant, boolean>;
   incident_selected: boolean;
   complete: boolean;
@@ -46,7 +45,11 @@ type Room = {
   channels: Channel[];
   server_time: number;
 };
-type Config = { twitch_configured: boolean; incidents: string[] };
+type Config = {
+  twitch_configured: boolean;
+  twitch_redirect_uri: string;
+  incidents: string[];
+};
 const phases = ["briefing", "opening", "questions", "closing", "finished"];
 const phaseNames: Record<string, string> = {
   briefing: "The briefing",
@@ -99,6 +102,16 @@ function App() {
   const publicViewer = path[1] === "view";
   const setupPage = path[3] === "setup";
   const storageKey = (path[1] === "moderator" ? "dc:moderator:" : "dc:") + code;
+  const [creatorSlot] = useState(() => {
+    const requested = new URLSearchParams(location.search).get("slot");
+    try {
+      if (requested === "0" || requested === "1")
+        sessionStorage.setItem("dc:slot:" + code, requested);
+      return sessionStorage.getItem("dc:slot:" + code) === "1" ? 1 : 0;
+    } catch {
+      return requested === "1" ? 1 : 0;
+    }
+  });
   const [key] = useState(() => {
     if (overlay || publicViewer || !code) return "";
     const incoming = new URLSearchParams(location.hash.slice(1)).get("key");
@@ -113,6 +126,7 @@ function App() {
   });
   const [config, setConfig] = useState<Config>({
     twitch_configured: false,
+    twitch_redirect_uri: "",
     incidents: [],
   });
   const [room, setRoom] = useState<Room | null>(null);
@@ -125,7 +139,7 @@ function App() {
   const [moderatorKey, setModeratorKey] = useState("");
   const [setupStep, setSetupStep] = useState<SetupStep | null>(null);
   const [displayConfirmed, setDisplayConfirmed] = useState(false);
-  const [names, setNames] = useState(["", ""]);
+  const [displayName, setDisplayName] = useState<string | null>(null);
   const [mode, setMode] = useState("rehearsal");
   const [claim, setClaim] = useState("");
   const [incident, setIncident] = useState("");
@@ -141,10 +155,10 @@ function App() {
   const setup = room?.setup;
   const showSetup = isCreator && setupPage;
   const setupSteps: SetupStep[] = [
+    ...(room?.mode === "live" ? ["channels" as const] : []),
     "creator",
     "moderator",
     "viewer",
-    ...(room?.mode === "live" ? ["channels" as const] : []),
     "incident",
   ];
   const firstIncompleteStep =
@@ -153,7 +167,7 @@ function App() {
         ? !setup?.incident_selected
         : step === "channels"
           ? room?.channels.some((channel) => channel.status !== "connected")
-          : !setup?.shared[step] || !setup?.confirmed[step],
+          : !setup?.confirmed[step],
     ) || "incident";
   const currentStep = setupStep || firstIncompleteStep;
   const stepIndex = setupSteps.indexOf(currentStep);
@@ -185,6 +199,7 @@ function App() {
   }, []);
   useEffect(() => {
     document.body.classList.toggle("overlay-body", overlay);
+    document.documentElement.classList.toggle("overlay-root", overlay);
     if (!code) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -231,7 +246,6 @@ function App() {
   }
   async function create() {
     const result = await api("/rooms", "", {
-      names: names.map((n, i) => n.trim() || ["Alex", "Jamie"][i]),
       mode,
     });
     if (mode === "rehearsal") {
@@ -265,7 +279,6 @@ function App() {
   const disabled = busy || !!connectionError;
   const setupReady =
     !!setup &&
-    Object.values(setup.shared).every(Boolean) &&
     Object.values(setup.confirmed).every(Boolean) &&
     setup.incident_selected &&
     (room?.mode === "rehearsal" || connected === 2);
@@ -275,10 +288,7 @@ function App() {
       ? "Rehearsal • sample contributions"
       : `${connected}/2 Twitch channels connected`;
   const stage = room && (
-    <section
-      className={"stage " + (overlay ? "broadcast" : "")}
-      aria-label="Audience preview"
-    >
+    <section className="stage" aria-label="Audience preview">
       <div className="stage-top">
         <span className="on-air">
           <i />
@@ -296,29 +306,22 @@ function App() {
         <span className="stage-label">The situation</span>
         <h2>{room.incident}</h2>
       </div>
-      {!overlay && (
-        <div className="podiums">
-          {room.names.map((name, i) => (
-            <div
-              key={i}
-              className={"podium " + (room.turn === i ? "speaking" : "")}
-            >
-              <div className="mic" aria-hidden="true">
-                <span />
-              </div>
-              <strong>{name}</strong>
-              <span>
-                {room.turn === i ? "On the record" : "Your partner in this"}
-              </span>
+      <div className="podiums">
+        {room.names.map((name, i) => (
+          <div
+            key={i}
+            className={"podium " + (room.turn === i ? "speaking" : "")}
+          >
+            <div className="mic" aria-hidden="true">
+              <span />
             </div>
-          ))}
-        </div>
-      )}
-      {overlay && (
-        <div className="broadcast-speaker">
-          On the record: <strong>{room.names[room.turn]}</strong>
-        </div>
-      )}
+            <strong>{name}</strong>
+            <span>
+              {room.turn === i ? "On the record" : "Your partner in this"}
+            </span>
+          </div>
+        ))}
+      </div>
       <div className="question-display">
         <span>
           {room.phase === "finished"
@@ -338,8 +341,8 @@ function App() {
                   : "Keep a straight face. The press is listening.")}
         </p>
       </div>
-      {overlay && room.claims.length > 0 && (
-        <div className="broadcast-receipts">
+      {room.claims.length > 0 && (
+        <div className="stage-receipts">
           <strong>You said…</strong>
           {room.claims.slice(-3).map((c) => (
             <p key={c.id}>
@@ -660,7 +663,11 @@ function App() {
   };
   const inviteLinks: Record<Participant, string> = {
     creator:
-      location.origin + "/room/" + code + "#key=" + encodeURIComponent(key),
+      location.origin +
+      "/room/" +
+      code +
+      "?slot=1#key=" +
+      encodeURIComponent(key),
     moderator:
       location.origin +
       "/moderator/" +
@@ -672,8 +679,8 @@ function App() {
   const roomLinks = room && isCreator && setup && (
     <section className="panel setup-step">
       <p className="muted">
-        This link opens only this participant’s page. Ask them to press “I can
-        see the room” when it loads. Keep private links off-stream.
+        This link opens only this participant’s page. Ask them to confirm their
+        page when it loads. Keep private links off-stream.
       </p>
       <ul className="setup-checklist">
         {(["creator", "moderator", "viewer"] as const)
@@ -724,22 +731,6 @@ function App() {
                     Open {participant} page
                   </a>
                 )}
-                <label className="share-check">
-                  <input
-                    type="checkbox"
-                    checked={setup.shared[participant]}
-                    disabled={disabled}
-                    onChange={(e) =>
-                      perform(() =>
-                        act("share", {
-                          role: participant,
-                          shared: e.target.checked,
-                        }),
-                      )
-                    }
-                  />
-                  I’ve shared this link
-                </label>
               </div>
             </li>
           ))}
@@ -776,55 +767,70 @@ function App() {
   const channels = room && room.mode === "live" && isCreator && (
     <section className="channel-bar panel">
       <div>
-        <strong>Your communities</strong>
-        <small>Each creator connects their own Twitch account.</small>
+        <strong>
+          {showSetup ? "Connect your Twitch accounts" : "Your Twitch account"}
+        </strong>
+        <small>
+          {config.twitch_configured
+            ? "App credentials loaded. Authorize each creator’s account using Connect Twitch."
+            : "Twitch app credentials have not been loaded by this server."}
+        </small>
       </div>
-      {room.channels.map((c, i) => (
-        <div key={i} className="channel">
-          <span>
-            {room.names[i]}
-            <small>
-              {c.channel ? "@" + c.channel + " — " : ""}
-              {c.status.replaceAll("_", " ")}
-            </small>
-          </span>
-          <button
-            className="secondary"
-            disabled={disabled || !config.twitch_configured}
-            onClick={() =>
-              perform(async () => {
-                const result = await api(prefix + "/twitch/start", key, {
-                  slot: i,
-                });
-                location.href = result.url;
-              })
-            }
-          >
-            {c.status === "connected" ? "Reconnect" : "Connect Twitch"}
-          </button>
-          {c.channel && (
+      {room.channels
+        .filter((c) => showSetup || c.slot === creatorSlot)
+        .map((c) => (
+          <div key={c.slot} className="channel">
+            <span>
+              {room.names[c.slot]}
+              <small>
+                {c.channel ? "@" + c.channel + " — " : ""}
+                {c.status.replaceAll("_", " ")}
+              </small>
+            </span>
             <button
-              className="text-button"
-              disabled={disabled}
+              className="secondary"
+              disabled={disabled || !config.twitch_configured}
               onClick={() =>
                 perform(async () => {
-                  await api(prefix + "/twitch/disconnect", key, {
-                    slot: i,
+                  const result = await api(prefix + "/twitch/start", key, {
+                    slot: c.slot,
                   });
-                  await refresh();
+                  location.href = result.url;
                 })
               }
             >
-              Disconnect
+              {c.status === "connected" ? "Reconnect" : "Connect Twitch"}
             </button>
-          )}
-        </div>
-      ))}
+            {c.channel && (
+              <button
+                className="text-button"
+                disabled={disabled}
+                onClick={() =>
+                  perform(async () => {
+                    await api(prefix + "/twitch/disconnect", key, {
+                      slot: c.slot,
+                    });
+                    await refresh();
+                  })
+                }
+              >
+                Disconnect
+              </button>
+            )}
+          </div>
+        ))}
       {!config.twitch_configured && (
         <p className="muted">
           Server setup required: add Twitch app credentials to .env and restart.
           See the README.
         </p>
+      )}
+      {showSetup && config.twitch_configured && (
+        <small>
+          Connecting registers a read-only chat subscription; app credentials
+          alone do not connect channels. Twitch must return to{" "}
+          {config.twitch_redirect_uri}.
+        </small>
       )}
     </section>
   );
@@ -898,6 +904,9 @@ function App() {
       </small>
     </section>
   );
+  const pageChecked =
+    displayConfirmed || (view !== "creator" && !!setup?.confirmed[view]);
+  const ownName = displayName ?? room?.names[creatorSlot] ?? "";
   const participantCheck = room && room.phase === "briefing" && !showSetup && (
     <div className="participant-check" role="status">
       <div>
@@ -909,25 +918,44 @@ function App() {
               : "Creator page"}
         </strong>
         <p>
-          {displayConfirmed || setup?.confirmed[view]
-            ? "Page check sent to the creator."
+          {pageChecked
+            ? isCreator && creatorSlot === 0
+              ? "Your name is saved. Your partner checks in through their invite."
+              : "Page check sent to the creator."
             : "Let the creator know this page is working before the conference starts."}
         </p>
       </div>
+      {isCreator && (
+        <label className="creator-name">
+          Your name
+          <input
+            maxLength={32}
+            value={ownName}
+            disabled={pageChecked}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+        </label>
+      )}
       <button
         className="secondary"
-        disabled={disabled || displayConfirmed || !!setup?.confirmed[view]}
+        disabled={disabled || pageChecked || (isCreator && !ownName.trim())}
         onClick={() =>
           perform(async () => {
-            await api(prefix + "/confirm", key, {});
+            await api(
+              prefix + "/confirm",
+              key,
+              isCreator ? { name: ownName, slot: creatorSlot } : {},
+            );
             setDisplayConfirmed(true);
             await refresh();
           })
         }
       >
-        {displayConfirmed || setup?.confirmed[view]
+        {pageChecked
           ? "Confirmed ✓"
-          : "I can see the room"}
+          : isCreator
+            ? "Save name & confirm"
+            : "I can see the room"}
       </button>
     </div>
   );
@@ -1015,7 +1043,7 @@ function App() {
             </section>
             <section className="setup panel">
               <span className="section-kicker">Call a press conference</span>
-              <h2>Who’s taking the mic?</h2>
+              <h2>Call your press conference.</h2>
               <p>
                 Bring a partner and your usual voice or video call. We’ll bring
                 the difficult questions.
@@ -1026,21 +1054,6 @@ function App() {
                   perform(create);
                 }}
               >
-                {names.map((name, i) => (
-                  <label key={i}>
-                    Creator {i + 1}
-                    <input
-                      maxLength={32}
-                      value={name}
-                      placeholder={["Alex", "Jamie"][i]}
-                      onChange={(e) =>
-                        setNames(
-                          names.map((n, j) => (j === i ? e.target.value : n)),
-                        )
-                      }
-                    />
-                  </label>
-                ))}
                 <fieldset>
                   <legend>Choose your conference</legend>
                   <label
@@ -1146,6 +1159,7 @@ function App() {
               </div>
             )}
             {participantCheck}
+            {isCreator && !showSetup && channels}
             {key && !setup?.complete && !showSetup && (
               <p className="notice">
                 The creator is setting up the room. Confirm your page above; the

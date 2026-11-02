@@ -13,11 +13,12 @@ from werkzeug.exceptions import HTTPException
 from backend.game import INCIDENTS, GameError, Store, slot_number
 from backend.twitch import Twitch
 
-load_dotenv()
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def create_app(database=None):
-    dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+    load_dotenv(ROOT / ".env", encoding="utf-8-sig")
+    dist = ROOT / "frontend" / "dist"
     app = Flask(__name__, static_folder=str(dist), static_url_path="/assets-static")
     app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
     store = Store(database or os.environ.get("DAMAGE_CONTROL_DB", "damage-control.sqlite3"))
@@ -71,7 +72,11 @@ def create_app(database=None):
 
     @app.get("/api/config")
     def config():
-        return jsonify(twitch_configured=bool(client_id and secret), incidents=INCIDENTS)
+        return jsonify(
+            twitch_configured=bool(client_id and secret),
+            twitch_redirect_uri=base + "/api/twitch/callback",
+            incidents=INCIDENTS,
+        )
 
     @app.post("/api/rooms")
     def create_room():
@@ -105,7 +110,13 @@ def create_app(database=None):
 
     @app.post("/api/rooms/<code>/confirm")
     def confirm(code):
-        store.confirm(code, key() if request.headers.get("X-Control-Key") else None)
+        data = body() if request.content_length else {}
+        store.confirm(
+            code,
+            key() if request.headers.get("X-Control-Key") else None,
+            data.get("name"),
+            data.get("slot"),
+        )
         return jsonify(ok=True)
 
     @app.post("/api/rooms/<code>/rehearsal")
@@ -135,6 +146,12 @@ def create_app(database=None):
                 raise GameError("Create a live room to connect Twitch.")
         if not client_id or not secret:
             raise GameError("Set TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET, then restart.", 503)
+        origin = request.headers.get("Origin")
+        if origin and origin != base:
+            raise GameError(
+                f"Open {base} before connecting Twitch so the authorization returns to this browser's room.",
+                409,
+            )
         state = secrets.token_urlsafe(32)
         with pending_lock:
             for stale in [s for s, v in pending.items() if time.time() - v[2] > 600]:

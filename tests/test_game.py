@@ -17,8 +17,6 @@ def room(tmp_path):
 
 def finish_setup(store, code, key):
     moderator = store.invite(code, key)
-    for role in ("creator", "moderator", "viewer"):
-        store.action(code, key, "share", {"role": role, "shared": True})
     for credential in (key, moderator, None):
         store.confirm(code, credential)
     store.action(code, key, "incident", {"text": "Our airline delivered everyone to a wedding."})
@@ -239,7 +237,7 @@ def test_moderator_cannot_control_the_performance(client, action):
     )
 
 
-def test_setup_requires_sharing_real_page_checks_and_incident(client):
+def test_setup_requires_page_checks_and_incident(client):
     path, creator = create(client)
     moderator = {
         "X-Control-Key": client.post(path + "/invites", headers=creator).json["moderator_key"]
@@ -249,9 +247,6 @@ def test_setup_requires_sharing_real_page_checks_and_incident(client):
         return client.post(path + "/actions", headers=creator, json={"action": name, **data})
 
     assert action("advance").status_code == 409
-    assert action("setup_complete").status_code == 409
-    for role in ("creator", "moderator", "viewer"):
-        assert action("share", role=role, shared=True).status_code == 200
     assert action("setup_complete").status_code == 409
     version = client.get(path).json["control_version"]
     # An anonymous audience check cannot confirm either private role, even if requested.
@@ -313,13 +308,122 @@ def test_partial_setup_survives_restart(tmp_path):
     store = Store(database)
     code, creator = store.create(["Alex", "Jamie"], "rehearsal")
     moderator = store.invite(code, creator)
-    store.action(code, creator, "share", {"role": "moderator", "shared": True})
     store.confirm(code, moderator)
     restored = Store(database)
     setup = restored.view(code, creator)["setup"]
-    assert setup["shared"] == {"creator": False, "moderator": True, "viewer": False}
     assert setup["confirmed"] == {"creator": False, "moderator": True, "viewer": False}
     assert not setup["complete"] and not setup["incident_selected"]
+
+
+def test_names_are_entered_by_creators_inside_the_room(client):
+    created = client.post("/api/rooms", json={"mode": "rehearsal"}).json
+    path = "/api/rooms/" + created["id"]
+    creator = {"X-Control-Key": created["key"]}
+    moderator = {
+        "X-Control-Key": client.post(path + "/invites", headers=creator).json["moderator_key"]
+    }
+    assert client.get(path).json["names"] == ["Creator 1", "Creator 2"]
+    assert (
+        client.post(
+            path + "/confirm", headers=creator, json={"slot": 0, "name": "Alex"}
+        ).status_code
+        == 200
+    )
+    assert not client.get(path, headers=creator).json["setup"]["confirmed"]["creator"]
+    for headers in (moderator, {}):
+        assert (
+            client.post(
+                path + "/confirm", headers=headers, json={"slot": 1, "name": "Impersonation"}
+            ).status_code
+            == 200
+        )
+        assert client.get(path).json["names"] == ["Alex", "Creator 2"]
+    assert (
+        client.post(
+            path + "/confirm", headers=creator, json={"slot": 1, "name": "Jamie"}
+        ).status_code
+        == 200
+    )
+    assert client.get(path).json["names"] == ["Alex", "Jamie"]
+    setup = client.get(path, headers=creator).json["setup"]
+    assert "shared" not in setup and all(setup["confirmed"].values())
+    assert (
+        client.post(
+            path + "/actions",
+            headers=creator,
+            json={"action": "incident", "text": "Our airline lost the moon."},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            path + "/actions", headers=creator, json={"action": "setup_complete"}
+        ).status_code
+        == 200
+    )
+
+
+@pytest.mark.parametrize("slot,name", [(True, "Alex"), (2, "Alex"), (1, ""), (1, "x" * 33)])
+def test_invalid_creator_checkin_does_not_change_names_or_readiness(client, slot, name):
+    path, creator = create(client)
+    assert (
+        client.post(
+            path + "/confirm", headers=creator, json={"slot": slot, "name": name}
+        ).status_code
+        == 400
+    )
+    assert client.get(path).json["names"] == ["Alex", "Jamie"]
+    assert not client.get(path, headers=creator).json["setup"]["confirmed"]["creator"]
+
+
+def test_older_setup_sharing_fields_do_not_block_page_confirmations(tmp_path):
+    store = Store(str(tmp_path / "older.sqlite3"))
+    code, creator = store.create(None, "rehearsal")
+    with store.room(code, creator, write=True) as state:
+        state["setup"]["shared"] = {"creator": False, "moderator": False, "viewer": False}
+    finish_setup(store, code, creator)
+    assert store.view(code, creator)["setup"]["complete"]
+    assert "shared" not in store.view(code, creator)["setup"]
+
+
+def test_root_env_is_loaded_independently_of_launch_directory_and_windows_bom(
+    tmp_path, monkeypatch
+):
+    for field in (
+        "TWITCH_CLIENT_ID",
+        "TWITCH_CLIENT_SECRET",
+        "APP_BASE_URL",
+        "PYTHON_DOTENV_DISABLED",
+    ):
+        monkeypatch.delenv(field, raising=False)
+    (tmp_path / ".env").write_text(
+        "TWITCH_CLIENT_ID=test-client\nTWITCH_CLIENT_SECRET=test-secret\nAPP_BASE_URL=http://localhost:5000\n",
+        encoding="utf-8-sig",
+    )
+    other = tmp_path / "other"
+    other.mkdir()
+    monkeypatch.chdir(other)
+    monkeypatch.setattr("backend.app.ROOT", tmp_path)
+    config = create_app(":memory:").test_client().get("/api/config").json
+    assert config["twitch_configured"]
+    assert config["twitch_redirect_uri"] == "http://localhost:5000/api/twitch/callback"
+    assert "test-secret" not in str(config) and "test-client" not in str(config)
+
+
+def test_oauth_explains_a_browser_origin_that_would_lose_room_credentials(monkeypatch):
+    monkeypatch.setenv("TWITCH_CLIENT_ID", "client")
+    monkeypatch.setenv("TWITCH_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("APP_BASE_URL", "http://localhost:5000")
+    client = create_app(":memory:").test_client()
+    path, creator = create(client, "live")
+    response = client.post(
+        path + "/twitch/start",
+        headers={**creator, "Origin": "http://127.0.0.1:5000"},
+        base_url="http://127.0.0.1:5000",
+        json={"slot": 0},
+    )
+    assert response.status_code == 409
+    assert "Open http://localhost:5000" in response.json["error"]
 
 
 def test_live_rooms_cannot_receive_fake_chat(client):

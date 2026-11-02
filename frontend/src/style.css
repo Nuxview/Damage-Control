@@ -393,6 +393,7 @@ legend {
   color: var(--muted);
 }
 .stage {
+  container-type: inline-size;
   overflow: hidden;
   position: relative;
   border-radius: 12px;
@@ -955,93 +956,39 @@ legend {
   gap: 10px;
   justify-content: flex-end;
 }
+.overlay-root,
 .overlay-body {
   background: transparent;
 }
 .overlay-shell {
-  padding: 36px;
-  min-height: 100vh;
+  width: min(100%, 960px);
 }
-.broadcast {
-  box-shadow: none;
-  min-height: calc(100vh - 72px);
-  background: transparent;
-  border-radius: 0;
-  overflow: visible;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+.stage-receipts {
+  padding: 0 22px 20px;
 }
-.broadcast .stage-top {
-  background: #173553f5;
-  border-radius: 5px;
-  gap: 30px;
-  border: 0;
-  padding: 12px 18px;
+.stage-receipts > strong {
+  font-size: 16px;
 }
-.broadcast .incident-display {
-  background: #173553f5;
-  border-radius: 7px;
-  text-align: left;
-  max-width: 680px;
-  padding: 23px 28px;
-  margin-top: 15px;
-}
-.broadcast .incident-display h2 {
-  font-size: 29px;
-}
-.broadcast .stage-label {
-  margin-bottom: 9px;
-}
-.broadcast-speaker {
-  margin-top: 10px;
-  background: #173553ed;
-  padding: 12px 18px;
-  border-radius: 5px;
-  font-size: 15px;
-}
-.broadcast .question-display {
-  margin: auto 0 15px;
-  max-width: 900px;
-  min-width: 400px;
-  box-shadow: 0 8px 30px #0002;
-}
-.broadcast .question-display p {
-  font-size: 25px;
-}
-.broadcast .stage-bottom {
-  background: #102b43f2;
-  border-radius: 5px;
-  min-width: 400px;
-}
-.broadcast-receipts {
-  position: absolute;
-  right: 0;
-  top: 0;
-  width: 300px;
-  padding: 23px;
-  background: #173553f2;
-  border-radius: 7px;
-}
-.broadcast-receipts > strong {
-  font-size: 20px;
-}
-.broadcast-receipts p {
+.stage-receipts p {
   font-size: 14px;
-  margin-top: 16px;
+  margin-top: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-.broadcast-receipts small {
+.stage-receipts small {
   display: block;
   font-size: 11px;
   color: #bccede;
 }
 .overlay-shell > .alert {
-  max-width: 500px;
+  margin: 12px;
 }
-.overlay-shell:has(> .alert) .broadcast {
+.overlay-shell:has(> .alert) .stage {
   opacity: 0.4;
+}
+.creator-name {
+  margin: 0;
+  max-width: 240px;
 }
 @media (max-width: 1050px) {
   .panel {
@@ -1188,25 +1135,6 @@ legend {
   .incident-options {
     grid-template-columns: 1fr 1fr;
   }
-  .broadcast-receipts {
-    position: static;
-    margin: 15px 0;
-    max-width: 100%;
-  }
-  .broadcast .question-display {
-    margin-top: 25px;
-    min-width: 0;
-  }
-  .broadcast .incident-display h2 {
-    font-size: 23px;
-  }
-  .broadcast .question-display p {
-    font-size: 20px;
-  }
-  .broadcast .stage-bottom {
-    min-width: 0;
-    width: 100%;
-  }
   .overlay-shell {
     padding: 16px;
   }
@@ -1264,9 +1192,6 @@ legend {
   border-radius: 0;
   box-shadow: none;
   background: transparent;
-}
-.workspace .stage {
-  box-shadow: none;
 }
 .workspace .round-controls {
   margin-top: auto;
@@ -1426,18 +1351,6 @@ legend {
   justify-content: flex-start;
   gap: 24px;
 }
-.share-check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  font-size: 12px;
-}
-.share-check input {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-}
 .check-status {
   font-size: 11px;
   color: var(--muted);
@@ -1566,45 +1479,37 @@ legend {
 .workspace-intro {
   margin-bottom: 16px;
 }
-.workspace .stage-top {
-  padding: 11px 16px;
-}
-.workspace .incident-display {
-  padding: 18px 24px 8px;
-}
-.workspace .incident-display h2 {
-  font-size: 26px;
-}
-.workspace .stage-label {
-  margin-bottom: 8px;
-}
-.workspace .podiums {
-  padding: 10px 20px 16px;
-}
-.workspace .podium {
-  padding: 9px 12px;
-  max-width: 190px;
-}
-.workspace .podium .mic {
-  display: none;
-}
-.workspace .podium strong {
-  font-size: 16px;
-  margin: 2px 0 5px;
-}
-.workspace .question-display {
-  min-height: 80px;
-  padding: 12px 16px;
-  margin: 0 16px 16px;
-}
-.workspace .stage-bottom {
-  padding: 10px 16px;
-}
 @media (max-width: 760px) {
-  .workspace .incident-display h2 {
-    font-size: 22px;
-  }
   .workspace-intro {
     font-size: 12px;
+  }
+}
+
+@container (max-width: 760px) {
+  .stage-top {
+    padding: 13px 15px;
+  }
+  .incident-display {
+    padding: 22px 20px 13px;
+  }
+  .incident-display h2 {
+    font-size: 23px;
+  }
+  .question-display {
+    margin: 0 15px 15px;
+    padding: 14px 16px;
+  }
+  .question-display p {
+    font-size: 16px;
+  }
+  .stage-bottom {
+    padding: 12px 15px;
+    font-size: 8px;
+  }
+  .stage-bottom > b {
+    font-size: 13px;
+  }
+  .podium strong {
+    font-size: 16px;
   }
 }
