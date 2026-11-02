@@ -152,6 +152,8 @@ def create_app(database=None):
                 f"Open {base} before connecting Twitch so the authorization returns to this browser's room.",
                 409,
             )
+        if data.get("name") is not None:
+            store.confirm(code, key(), data["name"], slot)
         state = secrets.token_urlsafe(32)
         with pending_lock:
             for stale in [s for s, v in pending.items() if time.time() - v[2] > 600]:
@@ -213,7 +215,10 @@ def create_app(database=None):
                 twitch.connect(code, slot, response.json())
             except (requests.RequestException, GameError, KeyError, ValueError):
                 notice = "failed"
-        result = redirect(f"/room/{code}/setup?twitch={notice}")
+        with store.room(code) as current:
+            needs_setup = not current.get("setup", {"complete": True})["complete"]
+        destination = f"/room/{code}" + ("/setup" if slot == 0 and needs_setup else "")
+        result = redirect(f"{destination}?slot={slot}&twitch={notice}")
         result.delete_cookie("dc_oauth")
         return result
 

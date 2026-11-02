@@ -4,13 +4,13 @@
 
 Use two performers in a call and a moderator with the private moderator invite (from Room setup). Each link opens a dedicated participant page. Creators handle statements, mic handoffs and timers; the moderator publishes contributions and records claims. Creators and moderators have separate credentials and permissions.
 
-1. Create a rehearsal room. Follow setup one step at a time: share each participant link and have each page confirmed. Each creator names themselves in their own page; no manual sharing checkboxes are needed. Use Back/Next to revisit a step. Choose the airline/wedding incident, finish setup, then start the opening statement. For a solo check, open the creator, moderator, and audience links in separate tabs.
+1. Create a rehearsal room. Set the host’s name first, then follow the unfinished setup tasks: share each participant link and have each page confirmed. Completed tasks are skipped automatically. Each creator names themselves in their own page; no manual sharing checkboxes are needed. Use Back/Next to revisit a step. Choose the airline/wedding incident, finish setup, then start the opening statement. For a solo check, open the creator, moderator, and audience links in separate tabs.
 2. Creator 1 explains it. Moderator pins one actual claim.
 3. Moderator sends the destination-wedding talking point to the private adviser panel.
 4. Open the floor. Feature “Does the bride know?” and pass the mic to Creator 2.
 5. Pin Creator 2's response. Ask a follow-up that quotes the first claim.
 6. Use the shared correction once; verify the original stays visible in the studio.
-7. Make the closing statement, finish, and start another round.
+7. Make the closing statement, finish, and start another round. Enter a new custom incident directly in Creator 1’s room and confirm it; check that samples stay collapsed and Creator 2 receives the new incident without onboarding again.
 
 Ask: could both creators read the situation? Did the private advice stay private? Was managing controls distracting? Did the second question build on the first? Improve pacing before adding features.
 

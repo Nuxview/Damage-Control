@@ -315,6 +315,96 @@ def test_partial_setup_survives_restart(tmp_path):
     assert not setup["complete"] and not setup["incident_selected"]
 
 
+def test_each_creator_checkin_is_persisted_and_completion_is_public(client):
+    path, creator = create(client)
+    code = path.split("/")[-1]
+    store = client.application.extensions["game"]
+    moderator = store.invite(code, creator["X-Control-Key"])
+    for key in (moderator, None):
+        store.confirm(code, key)
+    store.confirm(code, creator["X-Control-Key"], "Jamie", 1)
+    store.action(
+        code, creator["X-Control-Key"], "incident", {"text": "Our hotel replaced gravity."}
+    )
+    assert store.view(code, creator["X-Control-Key"])["setup"]["creators_confirmed"] == [
+        False,
+        True,
+    ]
+    assert not client.get(path).json["setup_complete"]
+    with pytest.raises(GameError):
+        store.action(code, creator["X-Control-Key"], "setup_complete", {})
+    store.confirm(code, creator["X-Control-Key"], "Alex", 0)
+    database = store.db.execute("PRAGMA database_list").fetchone()[2]
+    assert Store(database).view(code, creator["X-Control-Key"])["setup"]["creators_confirmed"] == [
+        True,
+        True,
+    ]
+    store.action(code, creator["X-Control-Key"], "setup_complete", {})
+    public = client.get(path).json
+    assert public["setup_complete"] and "setup" not in public
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_new_round_keeps_custom_incident_and_requires_explicit_selection(room, legacy):
+    store, code, creator, _moderator = room
+    custom = "Our space agency replaced the moon with a disco ball."
+    store.action(code, creator, "incident", {"text": custom})
+    if legacy:
+        with store.room(code, creator, write=True) as state:
+            del state["setup"]
+    for _ in range(4):
+        store.action(code, creator, "advance", {})
+    store.action(code, creator, "new_round", {})
+    state = store.view(code, creator)
+    assert state["incident"] == custom
+    assert state["setup"]["complete"] and not state["setup"]["incident_selected"]
+    with pytest.raises(GameError, match="Choose this round"):
+        store.action(code, creator, "advance", {})
+    replacement = "Our space agency's disco ball has requested a solo career."
+    store.action(code, creator, "incident", {"text": replacement})
+    store.action(code, creator, "advance", {})
+    assert store.view(code)["incident"] == replacement
+
+
+@pytest.mark.parametrize(
+    "slot,complete,destination",
+    [(0, False, "/setup"), (1, False, ""), (0, True, ""), (1, True, "")],
+)
+def test_oauth_saves_name_before_redirect_and_returns_each_creator_to_their_page(
+    monkeypatch, slot, complete, destination
+):
+    from urllib.parse import parse_qs, urlsplit
+
+    monkeypatch.setenv("TWITCH_CLIENT_ID", "client")
+    monkeypatch.setenv("TWITCH_CLIENT_SECRET", "secret")
+    app = create_app(":memory:")
+    client = app.test_client()
+    path, creator = create(client, "live")
+    code = path.split("/")[-1]
+    if complete:
+        finish_setup(app.extensions["game"], code, creator["X-Control-Key"])
+    response = client.post(
+        path + "/twitch/start", headers=creator, json={"slot": slot, "name": "My creator name"}
+    )
+    assert response.status_code == 200
+    state = app.extensions["game"].view(code, creator["X-Control-Key"])
+    assert state["names"][slot] == "My creator name"
+    assert state["setup"]["creators_confirmed"][slot]
+    oauth_state = parse_qs(urlsplit(response.json["url"]).query)["state"][0]
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"access_token": "fixture"}
+
+    monkeypatch.setattr("backend.app.requests.post", lambda *args, **kwargs: Response())
+    monkeypatch.setattr(app.extensions["twitch"], "connect", lambda *args: None)
+    callback = client.get(f"/api/twitch/callback?state={oauth_state}&code=fixture")
+    assert callback.location == f"/room/{code}{destination}?slot={slot}&twitch=connected"
+
+
 def test_names_are_entered_by_creators_inside_the_room(client):
     created = client.post("/api/rooms", json={"mode": "rehearsal"}).json
     path = "/api/rooms/" + created["id"]
@@ -466,7 +556,9 @@ def test_oauth_requires_cookie_and_consumes_state_once(client, monkeypatch):
     assert client.get("/api/twitch/callback?state=wrong&code=abc").status_code == 403
     callback = client.get(f"/api/twitch/callback?state={state}&error=access_denied")
     assert callback.status_code == 302
-    assert callback.location == path.replace("/api/rooms/", "/room/") + "/setup?twitch=denied"
+    assert (
+        callback.location == path.replace("/api/rooms/", "/room/") + "/setup?slot=0&twitch=denied"
+    )
     assert client.get(f"/api/twitch/callback?state={state}&code=abc").status_code == 403
 
 

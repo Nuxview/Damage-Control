@@ -990,6 +990,62 @@ legend {
   margin: 0;
   max-width: 240px;
 }
+.channel-bar {
+  gap: 20px;
+  align-items: flex-start;
+}
+.channel-bar > div:first-child {
+  flex-basis: 100%;
+}
+.channel-bar > div:first-child > strong,
+.channel {
+  font-size: 16px;
+}
+.channel {
+  flex-wrap: wrap;
+}
+.channel-bar small,
+.channel-bar > small {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.channel .secondary,
+.channel .text-button {
+  font-size: 14px;
+  padding: 12px 16px;
+}
+.channel-bar > small {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}
+.setup-step > .participant-check {
+  border: 0;
+  padding: 0;
+  margin-bottom: 24px;
+}
+.setup-workspace .participant-check p,
+.setup-workspace .muted {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.creator-name input {
+  font-size: 16px;
+}
+.workspace .incident-picker {
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+.sample-incidents {
+  margin-top: 20px;
+}
+.sample-incidents summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+}
+.incident-picker > .text-button {
+  margin-top: 16px;
+}
 @media (max-width: 1050px) {
   .panel {
     padding: 19px;

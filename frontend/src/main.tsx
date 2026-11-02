@@ -18,13 +18,15 @@ type Claim = {
 };
 type Channel = { slot: number; status: string; channel: string | null };
 type Participant = "creator" | "moderator" | "viewer";
-type SetupStep = Participant | "channels" | "incident";
+type SetupStep = Participant | "you" | "incident";
 type Setup = {
   confirmed: Record<Participant, boolean>;
+  creators_confirmed: boolean[];
   incident_selected: boolean;
   complete: boolean;
 };
 type Room = {
+  setup_complete: boolean;
   role: Participant;
   setup?: Setup;
   control_version: number;
@@ -138,11 +140,13 @@ function App() {
   const [help, setHelp] = useState(false);
   const [moderatorKey, setModeratorKey] = useState("");
   const [setupStep, setSetupStep] = useState<SetupStep | null>(null);
+  const [reviewingStep, setReviewingStep] = useState(false);
+  const [editingIncident, setEditingIncident] = useState(false);
   const [displayConfirmed, setDisplayConfirmed] = useState(false);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [mode, setMode] = useState("rehearsal");
   const [claim, setClaim] = useState("");
-  const [incident, setIncident] = useState("");
+  const [incident, setIncident] = useState<string | null>(null);
   const [sampleKind, setSampleKind] = useState("question");
   const [sampleText, setSampleText] = useState("");
   const [filter, setFilter] = useState("all");
@@ -152,36 +156,59 @@ function App() {
   const prefix = "/rooms/" + code;
   const view = room?.role || "viewer";
   const isCreator = view === "creator";
+  const ownName = displayName ?? room?.names[creatorSlot] ?? "";
   const setup = room?.setup;
-  const showSetup = isCreator && setupPage;
+  const showSetup = isCreator && creatorSlot === 0 && setupPage;
   const setupSteps: SetupStep[] = [
-    ...(room?.mode === "live" ? ["channels" as const] : []),
+    "you",
     "creator",
     "moderator",
     "viewer",
     "incident",
   ];
+  const stepComplete = (step: SetupStep) => {
+    if (step === "incident") return !!setup?.incident_selected;
+    if (step === "you" || step === "creator") {
+      const slot = step === "you" ? 0 : 1;
+      return (
+        !!setup?.creators_confirmed[slot] &&
+        (room?.mode === "rehearsal" ||
+          room?.channels.some(
+            (c) => c.slot === slot && c.status === "connected",
+          ))
+      );
+    }
+    return !!setup?.confirmed[step];
+  };
   const firstIncompleteStep =
-    setupSteps.find((step) =>
-      step === "incident"
-        ? !setup?.incident_selected
-        : step === "channels"
-          ? room?.channels.some((channel) => channel.status !== "connected")
-          : !setup?.confirmed[step],
-    ) || "incident";
-  const currentStep = setupStep || firstIncompleteStep;
+    setupSteps.find((step) => !stepComplete(step)) || "incident";
+  const currentStep =
+    setupStep || (setup?.complete ? "incident" : firstIncompleteStep);
   const stepIndex = setupSteps.indexOf(currentStep);
+  const nextStep =
+    setupSteps.slice(stepIndex + 1).find((step) => !stepComplete(step)) ||
+    "incident";
+  const currentStepComplete = stepComplete(currentStep);
   const stepTitles: Record<SetupStep, string> = {
+    you: room?.mode === "live" ? "Your name & Twitch account" : "Your name",
     creator: "Invite your partner",
     moderator: "Invite your moderator",
     viewer: "Share the audience display",
-    channels: "Connect your Twitch channels",
     incident: "Choose your incident",
   };
   useEffect(() => {
-    if (showSetup && setup && !setupStep)
-      setSetupStep(setup.complete ? "incident" : firstIncompleteStep);
-  }, [showSetup, setup, setupStep, firstIncompleteStep]);
+    if (
+      showSetup &&
+      !reviewingStep &&
+      currentStep !== "incident" &&
+      currentStepComplete
+    )
+      setSetupStep(nextStep);
+  }, [showSetup, reviewingStep, currentStep, currentStepComplete, nextStep]);
+  useEffect(() => {
+    setIncident(null);
+    setEditingIncident(false);
+  }, [room?.round]);
   useEffect(() => {
     if (!showSetup || !key) return;
     api(prefix + "/invites", key, {})
@@ -280,6 +307,7 @@ function App() {
   const setupReady =
     !!setup &&
     Object.values(setup.confirmed).every(Boolean) &&
+    setup.creators_confirmed.every(Boolean) &&
     setup.incident_selected &&
     (room?.mode === "rehearsal" || connected === 2);
   const notice = new URLSearchParams(location.search).get("twitch");
@@ -410,7 +438,11 @@ function App() {
         </button>
         <button
           className="primary"
-          disabled={disabled || !setup?.complete}
+          disabled={
+            disabled ||
+            !setup?.complete ||
+            (room.phase === "briefing" && !setup.incident_selected)
+          }
           onClick={() =>
             perform(() =>
               act(room.phase === "finished" ? "new_round" : "advance"),
@@ -425,48 +457,111 @@ function App() {
       </p>
     </section>
   );
-  const incidentPicker = room && isCreator && room.phase === "briefing" && (
-    <section className="panel incident-picker">
-      <h2>Choose your disaster</h2>
-      <div className="incident-options">
-        {config.incidents.map((s) => (
-          <button
-            disabled={disabled}
-            key={s}
-            className={
-              s === room.incident && setup?.incident_selected ? "selected" : ""
-            }
-            aria-pressed={s === room.incident && !!setup?.incident_selected}
-            onClick={() => perform(() => act("incident", { text: s }))}
-          >
-            {s}
-          </button>
-        ))}
-      </div>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          perform(async () => {
-            await act("incident", { text: incident });
-            setIncident("");
-          });
-        }}
-      >
-        <label>
-          Or write your own fictional incident
-          <textarea
-            maxLength={280}
-            value={incident}
-            onChange={(e) => setIncident(e.target.value)}
-            placeholder="Our company would like to address…"
-          />
-        </label>
-        <button className="secondary" disabled={disabled || !incident.trim()}>
-          Use this incident
-        </button>
-      </form>
-    </section>
-  );
+  const incidentText =
+    incident ??
+    (room &&
+    (room.round > 1 || setup?.incident_selected) &&
+    !config.incidents.includes(room.incident)
+      ? room.incident
+      : "");
+  const incidentPicker = room &&
+    isCreator &&
+    creatorSlot === 0 &&
+    room.phase === "briefing" && (
+      <section className="panel incident-picker">
+        {setup?.incident_selected && !editingIncident ? (
+          <>
+            <h2>This round’s incident</h2>
+            <p className="selected-incident" role="status">
+              {room.incident}
+            </p>
+            <button
+              className="text-button"
+              disabled={disabled}
+              onClick={() => setEditingIncident(true)}
+            >
+              Change incident
+            </button>
+          </>
+        ) : (
+          <>
+            <h2>
+              {room.round > 1
+                ? "Choose the next incident"
+                : "Choose your disaster"}
+            </h2>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                perform(async () => {
+                  await act("incident", { text: incidentText });
+                  setIncident(null);
+                  setEditingIncident(false);
+                });
+              }}
+            >
+              <label>
+                Write your own fictional incident
+                <textarea
+                  maxLength={280}
+                  value={incidentText}
+                  onChange={(e) => setIncident(e.target.value)}
+                  placeholder="Our company would like to address…"
+                />
+              </label>
+              <button
+                className="secondary"
+                disabled={disabled || !incidentText.trim()}
+              >
+                Use this incident
+              </button>
+            </form>
+            {room.round > 1 && !setup?.incident_selected && (
+              <button
+                className="text-button"
+                disabled={disabled}
+                onClick={() =>
+                  perform(async () => {
+                    await act("incident", { text: room.incident });
+                    setEditingIncident(false);
+                  })
+                }
+              >
+                Reuse previous incident
+              </button>
+            )}
+            <details className="sample-incidents">
+              <summary>Browse sample incidents</summary>
+              <div className="incident-options">
+                {config.incidents.map((s) => (
+                  <button
+                    disabled={disabled}
+                    key={s}
+                    onClick={() =>
+                      perform(async () => {
+                        await act("incident", { text: s });
+                        setIncident(null);
+                        setEditingIncident(false);
+                      })
+                    }
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </details>
+            {setup?.incident_selected && (
+              <button
+                className="text-button"
+                onClick={() => setEditingIncident(false)}
+              >
+                Keep current incident
+              </button>
+            )}
+          </>
+        )}
+      </section>
+    );
   const advice = room && key && isPerforming && room.spin && (
     <section className="panel adviser">
       <div>
@@ -692,12 +787,16 @@ function App() {
                 <span
                   className={
                     "check-status " +
-                    (setup.confirmed[participant] ? "checked" : "")
+                    (stepComplete(participant) ? "checked" : "")
                   }
                 >
-                  {setup.confirmed[participant]
-                    ? "Page checked ✓"
-                    : "Waiting for confirmation"}
+                  {stepComplete(participant)
+                    ? participant === "creator"
+                      ? "Partner ready ✓"
+                      : "Page checked ✓"
+                    : setup.confirmed[participant]
+                      ? "Page checked · waiting for Twitch"
+                      : "Waiting for confirmation"}
                 </span>
               </div>
               <p className="muted">
@@ -767,9 +866,7 @@ function App() {
   const channels = room && room.mode === "live" && isCreator && (
     <section className="channel-bar panel">
       <div>
-        <strong>
-          {showSetup ? "Connect your Twitch accounts" : "Your Twitch account"}
-        </strong>
+        <strong>Your Twitch account</strong>
         <small>
           {config.twitch_configured
             ? "App credentials loaded. Authorize each creator’s account using Connect Twitch."
@@ -777,7 +874,7 @@ function App() {
         </small>
       </div>
       {room.channels
-        .filter((c) => showSetup || c.slot === creatorSlot)
+        .filter((c) => c.slot === creatorSlot)
         .map((c) => (
           <div key={c.slot} className="channel">
             <span>
@@ -789,11 +886,16 @@ function App() {
             </span>
             <button
               className="secondary"
-              disabled={disabled || !config.twitch_configured}
+              disabled={
+                disabled || !config.twitch_configured || !ownName.trim()
+              }
               onClick={() =>
                 perform(async () => {
                   const result = await api(prefix + "/twitch/start", key, {
                     slot: c.slot,
+                    ...(setup?.creators_confirmed[creatorSlot]
+                      ? {}
+                      : { name: ownName }),
                   });
                   location.href = result.url;
                 })
@@ -904,61 +1006,58 @@ function App() {
       </small>
     </section>
   );
-  const pageChecked =
-    displayConfirmed || (view !== "creator" && !!setup?.confirmed[view]);
-  const ownName = displayName ?? room?.names[creatorSlot] ?? "";
-  const participantCheck = room && room.phase === "briefing" && !showSetup && (
-    <div className="participant-check" role="status">
-      <div>
-        <strong>
-          {view === "viewer"
-            ? "Audience display"
-            : view === "moderator"
-              ? "Moderator page"
-              : "Creator page"}
-        </strong>
-        <p>
-          {pageChecked
-            ? isCreator && creatorSlot === 0
-              ? "Your name is saved. Your partner checks in through their invite."
-              : "Page check sent to the creator."
-            : "Let the creator know this page is working before the conference starts."}
-        </p>
+  const pageChecked = isCreator
+    ? !!setup?.creators_confirmed[creatorSlot]
+    : displayConfirmed || !!setup?.confirmed[view];
+  const participantCheck = room &&
+    room.phase === "briefing" &&
+    !room.setup_complete &&
+    !pageChecked && (
+      <div className="participant-check" role="status">
+        <div>
+          <strong>
+            {view === "viewer"
+              ? "Audience display"
+              : view === "moderator"
+                ? "Moderator page"
+                : "Creator page"}
+          </strong>
+          <p>
+            {isCreator
+              ? "Choose the name shown to your partner and audience. It is saved before Twitch authorization."
+              : "Let the creator know this page is working before the conference starts."}
+          </p>
+        </div>
+        {isCreator && (
+          <label className="creator-name">
+            Your name
+            <input
+              maxLength={32}
+              value={ownName}
+              disabled={pageChecked}
+              onChange={(e) => setDisplayName(e.target.value)}
+            />
+          </label>
+        )}
+        <button
+          className="secondary"
+          disabled={disabled || pageChecked || (isCreator && !ownName.trim())}
+          onClick={() =>
+            perform(async () => {
+              await api(
+                prefix + "/confirm",
+                key,
+                isCreator ? { name: ownName, slot: creatorSlot } : {},
+              );
+              setDisplayConfirmed(true);
+              await refresh();
+            })
+          }
+        >
+          {isCreator ? "Save name & confirm" : "I can see the room"}
+        </button>
       </div>
-      {isCreator && (
-        <label className="creator-name">
-          Your name
-          <input
-            maxLength={32}
-            value={ownName}
-            disabled={pageChecked}
-            onChange={(e) => setDisplayName(e.target.value)}
-          />
-        </label>
-      )}
-      <button
-        className="secondary"
-        disabled={disabled || pageChecked || (isCreator && !ownName.trim())}
-        onClick={() =>
-          perform(async () => {
-            await api(
-              prefix + "/confirm",
-              key,
-              isCreator ? { name: ownName, slot: creatorSlot } : {},
-            );
-            setDisplayConfirmed(true);
-            await refresh();
-          })
-        }
-      >
-        {pageChecked
-          ? "Confirmed ✓"
-          : isCreator
-            ? "Save name & confirm"
-            : "I can see the room"}
-      </button>
-    </div>
-  );
+    );
   if (overlay)
     return (
       <main className="overlay-shell">
@@ -991,7 +1090,7 @@ function App() {
             <button className="text-button" onClick={() => setHelp(true)}>
               How to play
             </button>
-            {room && isCreator && (
+            {room && isCreator && creatorSlot === 0 && (
               <a
                 className="secondary"
                 href={"/room/" + code + (showSetup ? "" : "/setup")}
@@ -1158,12 +1257,18 @@ function App() {
                   : "Twitch connection was not completed. Check the app configuration and try again."}
               </div>
             )}
-            {participantCheck}
-            {isCreator && !showSetup && channels}
+            {!showSetup && participantCheck}
+            {isCreator &&
+              !showSetup &&
+              (!room.setup_complete ||
+                room.channels.some(
+                  (c) => c.slot === creatorSlot && c.status !== "connected",
+                )) &&
+              channels}
             {key && !setup?.complete && !showSetup && (
               <p className="notice">
-                The creator is setting up the room. Confirm your page above; the
-                conference can start when the checklist is complete.
+                The host is finishing setup. You’ll enter the room automatically
+                when it is ready.
               </p>
             )}
             {!key ? (
@@ -1195,12 +1300,14 @@ function App() {
                 {(["creator", "moderator", "viewer"] as string[]).includes(
                   currentStep,
                 ) && roomLinks}
-                {currentStep === "channels" && (
+                {currentStep === "you" && (
                   <section className="panel setup-step">
-                    <p className="muted">
-                      Each creator connects their own account. Both channels
-                      need to report connected before setup can finish.
-                    </p>
+                    {participantCheck}
+                    {!participantCheck && (
+                      <p className="notice">
+                        {room.names[creatorSlot]} · Name saved.
+                      </p>
+                    )}
                     {channels}
                   </section>
                 )}
@@ -1212,11 +1319,6 @@ function App() {
                       <p className="notice">
                         The incident is locked for this round. Finish the
                         conference to choose another.
-                      </p>
-                    )}
-                    {room.phase === "briefing" && setup?.incident_selected && (
-                      <p className="selected-incident" role="status">
-                        Selected: {room.incident}
                       </p>
                     )}
                     {room.mode === "rehearsal" && (
@@ -1231,7 +1333,10 @@ function App() {
                   <button
                     className="secondary"
                     disabled={disabled || stepIndex === 0}
-                    onClick={() => setSetupStep(setupSteps[stepIndex - 1])}
+                    onClick={() => {
+                      setReviewingStep(true);
+                      setSetupStep(setupSteps[stepIndex - 1]);
+                    }}
                   >
                     Back
                   </button>
@@ -1239,9 +1344,12 @@ function App() {
                     <button
                       className="primary"
                       disabled={disabled}
-                      onClick={() => setSetupStep(setupSteps[stepIndex + 1])}
+                      onClick={() => {
+                        setReviewingStep(false);
+                        setSetupStep(nextStep);
+                      }}
                     >
-                      Next: {stepTitles[setupSteps[stepIndex + 1]]}
+                      Next: {stepTitles[nextStep]}
                     </button>
                   ) : (
                     <div className="setup-completion">
@@ -1251,7 +1359,10 @@ function App() {
                           <button
                             className="text-button"
                             disabled={disabled}
-                            onClick={() => setSetupStep(firstIncompleteStep)}
+                            onClick={() => {
+                              setReviewingStep(false);
+                              setSetupStep(firstIncompleteStep);
+                            }}
                           >
                             Still to check: {stepTitles[firstIncompleteStep]}
                           </button>
@@ -1285,16 +1396,21 @@ function App() {
                   <div className="workspace-primary">
                     {view === "creator" ? (
                       <>
+                        {(!setup?.incident_selected || editingIncident) &&
+                          incidentPicker}
                         {stage}
+                        {room.phase === "briefing" &&
+                          creatorSlot === 0 &&
+                          setup?.incident_selected &&
+                          !editingIncident && (
+                            <button
+                              className="text-button"
+                              onClick={() => setEditingIncident(true)}
+                            >
+                              Change incident
+                            </button>
+                          )}
                         {advice}
-                        {room.phase === "briefing" && (
-                          <a
-                            className="text-button"
-                            href={"/room/" + code + "/setup"}
-                          >
-                            Change the incident in room setup
-                          </a>
-                        )}
                         {controls}
                       </>
                     ) : (

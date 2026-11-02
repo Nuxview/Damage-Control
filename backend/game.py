@@ -25,6 +25,7 @@ KINDS = {"incident", "question", "spin"}
 def setup_state():
     return {
         "confirmed": {role: False for role in ("creator", "moderator", "viewer")},
+        "creators_confirmed": [False, False],
         "incident_selected": False,
         "complete": False,
     }
@@ -142,6 +143,14 @@ class Store:
                 room["names"][slot] = text(name, "Your name", 32)
             if "setup" in room and not (role == "creator" and slot == 0):
                 room["setup"]["confirmed"][role] = True
+            if "setup" in room and role == "creator":
+                checks = room["setup"].setdefault(
+                    "creators_confirmed", [False, room["setup"]["confirmed"]["creator"]]
+                )
+                if slot is None:
+                    checks[:] = [True, True]  # Compatibility with earlier creator check-in clients.
+                else:
+                    checks[slot] = True
 
     def view(self, code, key=None):
         with self.room(code, key) as room:
@@ -151,8 +160,21 @@ class Store:
             result.pop(field, None)
         result["role"] = role
         # Existing rooms remain playable without retroactively requiring a setup checklist.
-        result.setdefault("setup", {**setup_state(), "complete": True})
+        result.setdefault(
+            "setup",
+            {
+                **setup_state(),
+                "complete": True,
+                "incident_selected": True,
+                "creators_confirmed": [True, True],
+            },
+        )
         result["setup"].pop("shared", None)
+        result["setup"].setdefault(
+            "creators_confirmed",
+            [result["setup"]["complete"], result["setup"]["confirmed"]["creator"]],
+        )
+        result["setup_complete"] = result["setup"]["complete"]
         if role != "moderator":
             result.pop("queue")
         if role == "viewer":
@@ -225,7 +247,11 @@ class Store:
             elif action == "setup_complete":
                 setup = room.get("setup")
                 if setup:
-                    if not (all(setup["confirmed"].values()) and setup["incident_selected"]):
+                    if not (
+                        all(setup["confirmed"].values())
+                        and all(setup.get("creators_confirmed", [True, True]))
+                        and setup["incident_selected"]
+                    ):
                         raise GameError(
                             "Check all three participant pages, then choose an incident.", 409
                         )
@@ -233,6 +259,13 @@ class Store:
             elif action == "advance":
                 if not room.get("setup", {"complete": True})["complete"]:
                     raise GameError("The creator must finish room setup first.", 409)
+                if (
+                    room["phase"] == "briefing"
+                    and not room.get("setup", {"incident_selected": True})["incident_selected"]
+                ):
+                    raise GameError(
+                        "Choose this round's incident before starting the statement.", 409
+                    )
                 if room["phase"] == "finished":
                     raise GameError("Start a new round first.", 409)
                 room["phase"] = PHASES[PHASES.index(room["phase"]) + 1]
@@ -321,8 +354,17 @@ class Store:
                     deadline=None,
                     remaining=None,
                     round=room["round"] + 1,
-                    incident=INCIDENTS[room["round"] % len(INCIDENTS)],
                 )
+                setup = room.setdefault(
+                    "setup",
+                    {
+                        **setup_state(),
+                        "complete": True,
+                        "confirmed": {role: True for role in ("creator", "moderator", "viewer")},
+                        "creators_confirmed": [True, True],
+                    },
+                )
+                setup["incident_selected"] = False
             else:
                 raise GameError("Unknown room action.")
             room["control_version"] = room.get("control_version", 0) + 1
