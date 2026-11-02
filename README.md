@@ -18,7 +18,7 @@ cp .env.example .env
 uv run python -m backend.app
 ```
 
-Open **http://localhost:5000**. Choose **Rehearsal**, enter two names, and open the studio. Rehearsal includes three explicitly labeled sample contributions; it never connects to Twitch. Use “Add a sample contribution” for more. No credentials are needed to play a complete rehearsal round.
+Open **http://localhost:5000**. Choose **Rehearsal**, enter two names, and create the room. You land on **Room setup** first. Rehearsal includes three explicitly labeled sample contributions; it never connects to Twitch. The moderator can use “Add a sample contribution” for more. No Twitch credentials are needed to play a complete rehearsal round. For solo testing, open each participant link in a separate tab and confirm each page.
 
 For frontend development, run `pnpm run dev` in `frontend/` alongside the backend and open the Vite URL. `/api` is proxied to Flask. For Twitch OAuth development, use the built app on port 5000 so the browser cookie and registered callback share one origin.
 
@@ -30,15 +30,38 @@ For frontend development, run `pnpm run dev` in `frontend/` alongside the backen
 4. **You said…:** a host or moderator pins a faithful summary of what was actually said. One shared correction can change a claim; its original is retained in the record.
 5. **Closing:** deliver one explanation that fits the record. Close the conference, then start the next round.
 
-Keep voice/video in your usual call or Twitch Stream Together. Damage Control does not capture cameras, microphones, or stream footage. A moderator can run the controls while both creators perform. The **Creator** workspace shows the current question, approved private advice, round controls, and a read-only claim record. The **Moderator** workspace owns the press inbox and claim entry. **Room setup** holds channel connections, invites, and incident selection. Creator and moderator workspaces use the same private control capability; they are not separate permission levels.
+Keep voice/video in your usual call or Twitch Stream Together. Damage Control does not capture cameras, microphones, or stream footage. A moderator can run the controls while both creators perform.
+
+Each participant gets a dedicated page, with no role-switching tabs:
+
+- **Creator** (`/room/ROOM`): the situation, current question, approved private advice, performance controls, and the claim record. Creators can also configure the room and share invites. Pending contributions never reach this page’s API response.
+- **Moderator** (`/moderator/ROOM`): the press inbox, publishing controls, claim entry, correction and round controls. Moderators have a separate credential and cannot fetch creator invites, edit setup, or connect/disconnect Twitch accounts.
+- **Viewer** (`/view/ROOM`): approved public content and chat instructions. This route ignores saved private credentials, even in the creator’s browser.
+
+Permissions are enforced by the backend, not by the page URL. Both creators share the creator credential; this MVP does not assign permissions to individual people or creator slots.
+
+### Set up the room before performing
+
+New rooms open directly at **Room setup** (`/room/ROOM/setup`), available only to creators:
+
+1. Copy and share the creator, moderator, and viewer links. Tick **I’ve shared this link** after sending each one; copying alone does not mark it shared.
+2. Ask your partner, moderator, and one viewer to press **I can see the room** on their respective pages. The checklist updates automatically. **Page checked** records a one-time confirmation, not ongoing presence or a successful Twitch chat test. For a solo rehearsal, use the **Open … page** links in separate tabs and confirm all three.
+3. In live rooms, each creator connects their own Twitch account. Both channel subscriptions must report **connected** before setup can finish. Rehearsal uses labeled sample contributions instead.
+4. Explicitly choose the fictional incident the creators will defend, or write your own.
+5. Press **Finish setup & enter creator page**. Then start the opening statement. The server blocks advancing a new room before setup is complete.
+
+Setup progress survives refreshes and server restarts. Existing rooms remain playable; they are not forced through the new checklist. Open setup to copy a new moderator link: older shared-control invites remain creator credentials and do not acquire moderator restrictions automatically.
 
 ### Collaborator and OBS links
 
-Open **Room setup** in the studio:
+Open **Room setup** from the creator page:
 
-- **Private creator/moderator invites:** gives your partner/moderator full room controls. The secret is carried in the URL fragment, then stored in that browser's local storage. Never show this link or the creator studio on-stream. Each invite opens its matching workspace. In this MVP all invited controllers have the same permissions.
-- **Viewer link:** a read-only page at `/view/ROOM`. This route ignores saved creator credentials, even in the host’s browser. It shows approved content and chat instructions, with the claim record collapsed.
-- **OBS browser source:** a read-only transparent overlay at `/overlay/ROOM`. Set the source to **1920 × 1080**. It shows the incident, active spokesperson, approved question, correction status, and three most recent pinned claims. It never shows pending submissions or PR talking points.
+- **Private creator invite:** opens the creator page and allows room configuration. Keep it off-stream.
+- **Private moderator invite:** opens the moderator page with its own limited credential. Keep it off-stream too. A moderator cannot generate creator invites.
+- **Viewer link:** opens the read-only public page. It never shows the pending inbox or PR advice. Viewers can submit a page check; game contributions still come through Twitch chat.
+- **OBS browser source:** a read-only transparent overlay at `/overlay/ROOM`, under the optional setup disclosure. Set the source to **1920 × 1080**. It shows the incident, active spokesperson, approved question, correction status, and three most recent pinned claims. It never shows pending submissions or PR talking points.
+
+Private credentials travel in URL fragments and are saved separately by role in that browser’s local storage. Never show private pages or invites on-stream. Treat invite links as credentials, not individual identities.
 
 Both creators need to reach the **same running backend**. A localhost URL on your computer is not accessible from your partner's computer. For remote play, run one instance on an HTTPS host or behind your own authenticated/private networking setup, set `APP_BASE_URL` to its public HTTPS origin, and share links from that origin. No hosting service has been provisioned by this repository.
 
@@ -74,7 +97,7 @@ uv run ruff check backend tests
 cd frontend && pnpm run build
 ```
 
-Tests cover the round lifecycle, moderation/public privacy, concurrent correction attempts, persistence, authorization, OAuth state binding, command parsing, contribution limits, and Shared Chat deduplication. TypeScript is checked as part of the frontend build.
+Tests cover the round lifecycle, moderation/public privacy, concurrent correction attempts, persistence, authorization, OAuth state binding, command parsing, contribution limits, Shared Chat deduplication, role permissions, legacy-room compatibility, setup completion, and explicit page checks. TypeScript is checked as part of the frontend build.
 
 ## Hosting and limits
 
@@ -84,7 +107,7 @@ Run **one Python process** with a persistent disk for `DAMAGE_CONTROL_DB`; SQLit
 HOST=0.0.0.0 PORT=5000 uv run python -m backend.app
 ```
 
-This is a small-group hackathon MVP, not a public room-hosting service. Rooms are limited to 100 per database; inboxes to 100 pending items; claims to 12 per round. No account system, granular moderator roles, automatic content moderation, private-link rotation, or multi-worker coordination is implemented. Keep creator links private; review viewer content before publishing. Back up the SQLite database before changing or clearing it. No telemetry is sent.
+This is a small-group hackathon MVP, not a public room-hosting service. Rooms are limited to 100 per database; inboxes to 100 pending items; claims to 12 per round. No account system, per-person permissions, automatic content moderation, private-link rotation, or multi-worker coordination is implemented. Keep creator and moderator links private; review viewer content before publishing. Back up the SQLite database before changing or clearing it. No telemetry is sent.
 
 Room state includes approved and pending contributions, author display names, source channels, and a bounded recent message-ID/cooldown window. `.env`, SQLite files, and build/dependency directories are ignored by Git. Do not commit Twitch secrets or real audience data.
 

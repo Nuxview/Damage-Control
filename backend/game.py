@@ -2,6 +2,7 @@
 
 import copy
 import hashlib
+import hmac
 import json
 import secrets
 import sqlite3
@@ -19,6 +20,19 @@ INCIDENTS = [
 ]
 PHASES = ["briefing", "opening", "questions", "closing", "finished"]
 KINDS = {"incident", "question", "spin"}
+
+
+def setup_state():
+    return {
+        "shared": {role: False for role in ("creator", "moderator", "viewer")},
+        "confirmed": {role: False for role in ("creator", "moderator", "viewer")},
+        "incident_selected": False,
+        "complete": False,
+    }
+
+
+def moderator_key(code, key):
+    return hmac.new(key.encode(), f"moderator:{code}".encode(), hashlib.sha256).hexdigest()
 
 
 class GameError(Exception):
@@ -55,9 +69,12 @@ class Store:
         if mode not in ("rehearsal", "live"):
             raise GameError("Choose rehearsal or live play.")
         key = secrets.token_urlsafe(32)
+        code = secrets.token_hex(4).upper()
         room = {
-            "id": secrets.token_hex(4).upper(),
+            "id": code,
             "key_hash": hashlib.sha256(key.encode()).hexdigest(),
+            "moderator_key_hash": hashlib.sha256(moderator_key(code, key).encode()).hexdigest(),
+            "setup": setup_state(),
             "names": names,
             "mode": mode,
             "phase": "briefing",
@@ -84,18 +101,16 @@ class Store:
         return room["id"], key
 
     @contextmanager
-    def room(self, code, key=None, write=False):
+    def room(self, code, key=None, write=False, roles=None):
         with self.lock:
             row = self.db.execute("SELECT data FROM rooms WHERE id = ?", (code,)).fetchone()
             if not row:
                 raise GameError("Room not found. Check the room link.", 404)
             room = json.loads(row[0])
-            if key is not None and not secrets.compare_digest(
-                room["key_hash"], hashlib.sha256(key.encode()).hexdigest()
-            ):
-                raise GameError(
-                    "This creator key is invalid. Ask the host for a fresh invite.", 403
-                )
+            if key is not None:
+                role = self.role(room, key)
+                if roles and role not in roles:
+                    raise GameError("This control is not available to your role.", 403)
             yield room
             if write:
                 room["revision"] += 1
@@ -104,14 +119,40 @@ class Store:
                         "UPDATE rooms SET data = ? WHERE id = ?", (json.dumps(room), code)
                     )
 
+    def role(self, room, key):
+        digest = hashlib.sha256(key.encode()).hexdigest()
+        for role, field in (("creator", "key_hash"), ("moderator", "moderator_key_hash")):
+            if secrets.compare_digest(room.get(field, ""), digest):
+                return role
+        raise GameError("This private invite is invalid. Ask the creator for a new link.", 403)
+
+    def invite(self, code, key):
+        # Older rooms acquire a separate moderator credential when the creator opens setup.
+        with self.room(code, key, write=True, roles=("creator",)) as room:
+            invite = moderator_key(code, key)
+            room["moderator_key_hash"] = hashlib.sha256(invite.encode()).hexdigest()
+        return invite
+
+    def confirm(self, code, key=None):
+        with self.room(code, key, write=True) as room:
+            role = self.role(room, key) if key else "viewer"
+            if "setup" in room:
+                room["setup"]["confirmed"][role] = True
+
     def view(self, code, key=None):
         with self.room(code, key) as room:
             result = copy.deepcopy(room)
-        for field in ("key_hash", "seen", "cooldowns"):
-            result.pop(field)
-        if key is None:
+            role = self.role(room, key) if key else "viewer"
+        for field in ("key_hash", "moderator_key_hash", "seen", "cooldowns"):
+            result.pop(field, None)
+        result["role"] = role
+        # Existing rooms remain playable without retroactively requiring a setup checklist.
+        result.setdefault("setup", {**setup_state(), "complete": True})
+        if role != "moderator":
             result.pop("queue")
+        if role == "viewer":
             result.pop("spin")  # Adviser's talking point stays off the audience display.
+            result.pop("setup")
         return result
 
     def submit(self, code, kind, body, author, source, user_id, message_id):
@@ -145,6 +186,32 @@ class Store:
 
     def action(self, code, key, action, data):
         with self.room(code, key, write=True) as room:
+            role = self.role(room, key)
+            allowed = {
+                "creator": {
+                    "incident",
+                    "share",
+                    "setup_complete",
+                    "advance",
+                    "turn",
+                    "timer",
+                    "correct",
+                    "new_round",
+                },
+                "moderator": {
+                    "approve",
+                    "reject",
+                    "claim",
+                    "clear",
+                    "advance",
+                    "turn",
+                    "timer",
+                    "correct",
+                    "new_round",
+                },
+            }
+            if not isinstance(action, str) or action not in allowed[role]:
+                raise GameError("This control is not available to your role.", 403)
             if data.get("expected_version", room.get("control_version", 0)) != room.get(
                 "control_version", 0
             ):
@@ -153,7 +220,32 @@ class Store:
                 if room["phase"] != "briefing":
                     raise GameError("Choose the incident during briefing.", 409)
                 room["incident"] = text(data.get("text"), "Incident")
+                if "setup" in room:
+                    room["setup"]["incident_selected"] = True
+            elif action == "share":
+                participant = data.get("role")
+                if (
+                    participant not in ("creator", "moderator", "viewer")
+                    or type(data.get("shared")) is not bool
+                ):
+                    raise GameError("Choose a participant and whether their link was shared.")
+                if "setup" in room:
+                    room["setup"]["shared"][participant] = data["shared"]
+            elif action == "setup_complete":
+                setup = room.get("setup")
+                if setup:
+                    if not (
+                        all(setup["shared"].values())
+                        and all(setup["confirmed"].values())
+                        and setup["incident_selected"]
+                    ):
+                        raise GameError(
+                            "Share and check all three links, then choose an incident.", 409
+                        )
+                    setup["complete"] = True
             elif action == "advance":
+                if not room.get("setup", {"complete": True})["complete"]:
+                    raise GameError("The creator must finish room setup first.", 409)
                 if room["phase"] == "finished":
                     raise GameError("Start a new round first.", 409)
                 room["phase"] = PHASES[PHASES.index(room["phase"]) + 1]
@@ -216,6 +308,8 @@ class Store:
                         if room["phase"] != "briefing":
                             raise GameError("Save incident selection for the next briefing.", 409)
                         room["incident"] = item["text"]
+                        if "setup" in room:
+                            room["setup"]["incident_selected"] = True
                     else:
                         if room["phase"] not in ("opening", "questions"):
                             raise GameError(

@@ -11,7 +11,18 @@ from backend.twitch import Twitch, Worker, parse_command, valid_socket_url
 def room(tmp_path):
     store = Store(str(tmp_path / "game.sqlite3"))
     code, key = store.create(["Alex", "Jamie"], "rehearsal")
-    return store, code, key
+    finish_setup(store, code, key)
+    return store, code, store.invite(code, key)
+
+
+def finish_setup(store, code, key):
+    moderator = store.invite(code, key)
+    for role in ("creator", "moderator", "viewer"):
+        store.action(code, key, "share", {"role": role, "shared": True})
+    for credential in (key, moderator, None):
+        store.confirm(code, credential)
+    store.action(code, key, "incident", {"text": "Our airline delivered everyone to a wedding."})
+    store.action(code, key, "setup_complete", {})
 
 
 def start(store, code, key):
@@ -133,11 +144,15 @@ def client(tmp_path):
     return app.test_client()
 
 
-def create(client, mode="rehearsal"):
+def create(client, mode="rehearsal", role="creator"):
     result = client.post("/api/rooms", json={"names": ["Alex", "Jamie"], "mode": mode})
     assert result.status_code == 201
     data = result.json
-    return "/api/rooms/" + data["id"], {"X-Control-Key": data["key"]}
+    path = "/api/rooms/" + data["id"]
+    key = data["key"]
+    if role == "moderator":
+        key = client.post(path + "/invites", headers={"X-Control-Key": key}).json["moderator_key"]
+    return path, {"X-Control-Key": key}
 
 
 def test_api_auth_and_public_projection(client):
@@ -151,15 +166,144 @@ def test_api_auth_and_public_projection(client):
     )
     assert client.get(path, headers={"X-Control-Key": "bad"}).status_code == 403
     assert "queue" not in client.get(path).json
-    assert "queue" in client.get(path, headers=headers).json
+    assert "queue" not in client.get(path, headers=headers).json
+    finish_setup(
+        client.application.extensions["game"], path.split("/")[-1], headers["X-Control-Key"]
+    )
     assert (
         client.post(path + "/actions", headers=headers, json={"action": "advance"}).status_code
         == 200
     )
 
 
+def test_roles_have_separate_keys_and_private_projections(client):
+    path, creator = create(client)
+    response = client.post(path + "/invites", headers=creator)
+    moderator = {"X-Control-Key": response.json["moderator_key"]}
+    assert moderator != creator
+    assert client.post(path + "/invites", headers=creator).json == response.json
+    assert client.post(path + "/invites", headers=moderator).status_code == 403
+    assert client.post(path + "/invites").status_code == 403
+
+    client.post(path + "/rehearsal", headers=moderator, json={"kind": "spin", "text": "Private"})
+    for headers, role in (({}, "viewer"), (creator, "creator"), (moderator, "moderator")):
+        state = client.get(path, headers=headers).json
+        assert state["role"] == role
+        assert ("queue" in state) == (role == "moderator")
+        assert ("spin" in state) == (role != "viewer")
+        assert ("setup" in state) == (role != "viewer")
+        assert "key_hash" not in state and "moderator_key_hash" not in state
+
+
+@pytest.mark.parametrize("action", ["claim", "approve", "reject", "clear"])
+def test_creator_cannot_use_moderator_actions(client, action):
+    path, creator = create(client)
+    assert (
+        client.post(path + "/actions", headers=creator, json={"action": action}).status_code == 403
+    )
+
+
+@pytest.mark.parametrize("action", ["incident", "share", "setup_complete"])
+def test_moderator_cannot_change_setup(client, action):
+    path, moderator = create(client, role="moderator")
+    assert (
+        client.post(path + "/actions", headers=moderator, json={"action": action}).status_code
+        == 403
+    )
+    for endpoint in ("start", "disconnect"):
+        assert (
+            client.post(
+                path + "/twitch/" + endpoint, headers=moderator, json={"slot": 0}
+            ).status_code
+            == 403
+        )
+
+
+def test_setup_requires_sharing_real_page_checks_and_incident(client):
+    path, creator = create(client)
+    moderator = {
+        "X-Control-Key": client.post(path + "/invites", headers=creator).json["moderator_key"]
+    }
+
+    def action(name, **data):
+        return client.post(path + "/actions", headers=creator, json={"action": name, **data})
+
+    assert action("advance").status_code == 409
+    assert action("setup_complete").status_code == 409
+    for role in ("creator", "moderator", "viewer"):
+        assert action("share", role=role, shared=True).status_code == 200
+    assert action("setup_complete").status_code == 409
+    version = client.get(path).json["control_version"]
+    # An anonymous audience check cannot confirm either private role, even if requested.
+    assert client.post(path + "/confirm", json={"role": "moderator"}).status_code == 200
+    state = client.get(path, headers=creator).json
+    assert state["setup"]["confirmed"] == {"creator": False, "moderator": False, "viewer": True}
+    assert client.post(path + "/confirm", headers=creator).status_code == 200
+    assert client.post(path + "/confirm", headers=moderator).status_code == 200
+    assert client.get(path).json["control_version"] == version
+    assert action("setup_complete").status_code == 409
+    assert action("incident", text="Our zoo misplaced the moon.").status_code == 200
+    assert action("setup_complete").status_code == 200
+    assert action("advance").status_code == 200
+
+
+def test_live_setup_requires_connected_channels(client, monkeypatch):
+    path, creator = create(client, "live")
+    finish_setup(
+        client.application.extensions["game"], path.split("/")[-1], creator["X-Control-Key"]
+    )
+    with client.application.extensions["game"].room(path.split("/")[-1], write=True) as state:
+        state["setup"]["complete"] = False
+    # Provider status is checked again on the server, not trusted from the browser checklist.
+    response = client.post(path + "/actions", headers=creator, json={"action": "setup_complete"})
+    assert response.status_code == 409
+    assert not client.get(path, headers=creator).json["setup"]["complete"]
+    monkeypatch.setattr(
+        client.application.extensions["twitch"],
+        "statuses",
+        lambda code: [
+            {"slot": i, "status": "connected", "channel": name}
+            for i, name in enumerate(["alex", "jamie"])
+        ],
+    )
+    assert (
+        client.post(
+            path + "/actions", headers=creator, json={"action": "setup_complete"}
+        ).status_code
+        == 200
+    )
+
+
+def test_old_rooms_keep_creator_access_and_receive_new_moderator_invites(tmp_path):
+    store = Store(str(tmp_path / "legacy.sqlite3"))
+    code, creator = store.create(["Alex", "Jamie"], "rehearsal")
+    with store.room(code, creator, write=True) as state:
+        del state["setup"]
+        del state["moderator_key_hash"]
+    assert store.view(code, creator)["setup"]["complete"]
+    moderator = store.invite(code, creator)
+    assert store.view(code, moderator)["role"] == "moderator"
+    store.action(code, creator, "advance", {})
+    restored = Store(str(tmp_path / "legacy.sqlite3"))
+    assert restored.view(code, moderator)["role"] == "moderator"
+
+
+def test_partial_setup_survives_restart(tmp_path):
+    database = str(tmp_path / "setup.sqlite3")
+    store = Store(database)
+    code, creator = store.create(["Alex", "Jamie"], "rehearsal")
+    moderator = store.invite(code, creator)
+    store.action(code, creator, "share", {"role": "moderator", "shared": True})
+    store.confirm(code, moderator)
+    restored = Store(database)
+    setup = restored.view(code, creator)["setup"]
+    assert setup["shared"] == {"creator": False, "moderator": True, "viewer": False}
+    assert setup["confirmed"] == {"creator": False, "moderator": True, "viewer": False}
+    assert not setup["complete"] and not setup["incident_selected"]
+
+
 def test_live_rooms_cannot_receive_fake_chat(client):
-    path, headers = create(client, "live")
+    path, headers = create(client, "live", role="moderator")
     response = client.post(
         path + "/rehearsal", headers=headers, json={"kind": "question", "text": "Fake"}
     )
@@ -196,7 +340,9 @@ def test_oauth_requires_cookie_and_consumes_state_once(client, monkeypatch):
 
     state = parse_qs(urlsplit(response.json["url"]).query)["state"][0]
     assert client.get("/api/twitch/callback?state=wrong&code=abc").status_code == 403
-    assert client.get(f"/api/twitch/callback?state={state}&error=access_denied").status_code == 302
+    callback = client.get(f"/api/twitch/callback?state={state}&error=access_denied")
+    assert callback.status_code == 302
+    assert callback.location == path.replace("/api/rooms/", "/room/") + "/setup?twitch=denied"
     assert client.get(f"/api/twitch/callback?state={state}&code=abc").status_code == 403
 
 
@@ -267,7 +413,7 @@ def test_expired_timer_can_restart(room, monkeypatch):
 
 
 def test_bad_command_kind_returns_validation_error(client):
-    path, headers = create(client)
+    path, headers = create(client, role="moderator")
     response = client.post(
         path + "/rehearsal", headers=headers, json={"kind": [], "text": "invalid"}
     )

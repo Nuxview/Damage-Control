@@ -834,25 +834,6 @@ legend {
   border-color: #8aa4bc;
   background: #e8f0f7;
 }
-.share-panel {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 30px;
-  margin-bottom: 24px;
-}
-.share-panel p {
-  font-size: 12px;
-  color: var(--muted);
-  margin: 10px 0 15px;
-}
-.share-panel h2 {
-  font-size: 18px;
-}
-.share-panel a {
-  font-size: 11px;
-  display: inline-block;
-  margin-top: 12px;
-}
 .channel-bar {
   display: flex;
   align-items: center;
@@ -1087,9 +1068,6 @@ legend {
   .intro h1 {
     font-size: 45px;
   }
-  .share-panel {
-    gap: 20px;
-  }
 }
 @media (max-width: 760px) {
   .app-header {
@@ -1188,14 +1166,6 @@ legend {
   .podium strong {
     font-size: 16px;
   }
-  .share-panel {
-    display: block;
-  }
-  .share-panel > div + div {
-    margin-top: 25px;
-    border-top: 1px solid var(--line);
-    padding-top: 20px;
-  }
   .control-row {
     gap: 10px;
   }
@@ -1253,33 +1223,6 @@ legend {
 }
 
 /* Each workspace is one continuous surface; supporting tools stay out of the performance. */
-.workspace-tabs {
-  display: flex;
-  gap: 28px;
-  border-bottom: 1px solid #cdd9e5;
-  margin-bottom: 20px;
-}
-.workspace-tabs button {
-  background: transparent;
-  color: var(--muted);
-  padding: 13px 0;
-  font-size: 14px;
-  font-weight: 600;
-  border-bottom: 3px solid transparent;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.workspace-tabs button[aria-current] {
-  color: var(--navy);
-  border-bottom-color: var(--navy);
-}
-.tab-count {
-  background: #dfe8f1;
-  border-radius: 20px;
-  padding: 2px 7px;
-  font-size: 10px;
-}
 .workspace-intro {
   color: var(--muted);
   font-size: 13px;
@@ -1428,13 +1371,6 @@ legend {
   background: transparent;
   border-top: 1px solid var(--line);
 }
-.setup-workspace .share-panel {
-  grid-template-columns: 1fr 1fr;
-  gap: 40px;
-}
-.setup-workspace .share-panel .secondary {
-  margin: 8px 8px 0 0;
-}
 .invite-note {
   display: block;
   font-size: 11px;
@@ -1447,6 +1383,106 @@ legend {
 }
 .setup-workspace .incident-picker form {
   max-width: 650px;
+}
+.setup-step {
+  padding: 28px 0;
+  border-top: 1px solid var(--line);
+}
+.setup-step > h2 {
+  margin-bottom: 12px;
+}
+.setup-step .incident-picker {
+  padding: 0;
+  border: 0;
+}
+.setup-step .channel-bar {
+  padding: 20px 0 0;
+  border: 0;
+  margin: 0;
+}
+.setup-checklist {
+  padding: 0;
+  margin: 20px 0 0;
+  list-style: none;
+}
+.setup-checklist li {
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+}
+.checklist-heading,
+.checklist-actions,
+.participant-check,
+.setup-finish {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.setup-checklist .muted {
+  margin: 10px 0 16px;
+}
+.checklist-actions {
+  justify-content: flex-start;
+  gap: 24px;
+}
+.share-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+}
+.share-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+.check-status {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 6px 10px;
+}
+.check-status.checked,
+.selected-incident {
+  color: #25644e;
+  background: #edf7f1;
+  border-color: #c4ddcf;
+}
+.selected-incident {
+  padding: 14px;
+  border-radius: 6px;
+  margin-top: 18px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.participant-check {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px 22px;
+  margin-bottom: 20px;
+  font-size: 13px;
+}
+.participant-check p {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 5px;
+}
+.setup-finish {
+  border-top: 1px solid var(--line);
+  padding-top: 24px;
+}
+.setup-finish p {
+  font-size: 13px;
+  color: var(--muted);
+  flex: 1 1 300px;
+}
+.header-actions a.secondary {
+  text-decoration: none;
+  white-space: nowrap;
 }
 .viewer-workspace {
   max-width: 100%;
@@ -1492,12 +1528,6 @@ legend {
   .header-actions {
     gap: 10px;
   }
-  .workspace-tabs {
-    gap: 22px;
-  }
-  .workspace-tabs button {
-    font-size: 12px;
-  }
   .workspace {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1511,12 +1541,6 @@ legend {
   .setup-workspace {
     padding: 20px;
   }
-  .setup-workspace .share-panel {
-    display: block;
-  }
-  .setup-workspace .share-panel > div + div {
-    margin-top: 25px;
-  }
   .setup-workspace .incident-options {
     grid-template-columns: 1fr;
   }
@@ -1528,9 +1552,6 @@ legend {
 /* Leave room for the mic and round controls without scrolling past the preview. */
 .studio-heading {
   margin: 0 0 18px;
-}
-.workspace-tabs {
-  margin-bottom: 14px;
 }
 .workspace-intro {
   margin-bottom: 16px;

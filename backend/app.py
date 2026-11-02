@@ -90,14 +90,29 @@ def create_app(database=None):
     @app.post("/api/rooms/<code>/actions")
     def action(code):
         data = body()
+        if data.get("action") == "setup_complete":
+            with store.room(code, key(), roles=("creator",)) as current:
+                if current["mode"] == "live" and any(
+                    c["status"] != "connected" for c in twitch.statuses(code)
+                ):
+                    raise GameError("Connect both Twitch channels before finishing setup.", 409)
         store.action(code, key(), data.get("action"), data)
+        return jsonify(ok=True)
+
+    @app.post("/api/rooms/<code>/invites")
+    def invites(code):
+        return jsonify(moderator_key=store.invite(code, key()))
+
+    @app.post("/api/rooms/<code>/confirm")
+    def confirm(code):
+        store.confirm(code, key() if request.headers.get("X-Control-Key") else None)
         return jsonify(ok=True)
 
     @app.post("/api/rooms/<code>/rehearsal")
     def rehearsal(code):
         control_key = key()
         data = body()
-        with store.room(code, control_key) as current:
+        with store.room(code, control_key, roles=("moderator",)) as current:
             if current["mode"] != "rehearsal":
                 raise GameError("Sample contributions are disabled in live rooms.", 403)
         store.submit(
@@ -115,7 +130,7 @@ def create_app(database=None):
     def oauth_start(code):
         data = body()
         slot = slot_number(data.get("slot"))
-        with store.room(code, key()) as current:
+        with store.room(code, key(), roles=("creator",)) as current:
             if current["mode"] != "live":
                 raise GameError("Create a live room to connect Twitch.")
         if not client_id or not secret:
@@ -181,14 +196,14 @@ def create_app(database=None):
                 twitch.connect(code, slot, response.json())
             except (requests.RequestException, GameError, KeyError, ValueError):
                 notice = "failed"
-        result = redirect(f"/room/{code}?twitch={notice}")
+        result = redirect(f"/room/{code}/setup?twitch={notice}")
         result.delete_cookie("dc_oauth")
         return result
 
     @app.post("/api/rooms/<code>/twitch/disconnect")
     def disconnect(code):
         data = body()
-        with store.room(code, key()):
+        with store.room(code, key(), roles=("creator",)):
             pass
         twitch.disconnect(code, slot_number(data.get("slot")))
         return jsonify(ok=True)

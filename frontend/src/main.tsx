@@ -17,7 +17,16 @@ type Claim = {
   original?: string;
 };
 type Channel = { slot: number; status: string; channel: string | null };
+type Participant = "creator" | "moderator" | "viewer";
+type Setup = {
+  shared: Record<Participant, boolean>;
+  confirmed: Record<Participant, boolean>;
+  incident_selected: boolean;
+  complete: boolean;
+};
 type Room = {
+  role: Participant;
+  setup?: Setup;
   control_version: number;
   id: string;
   names: string[];
@@ -87,14 +96,16 @@ function App() {
   const code = path[2]?.toUpperCase() || "";
   const overlay = path[1] === "overlay";
   const publicViewer = path[1] === "view";
+  const setupPage = path[3] === "setup";
+  const storageKey = (path[1] === "moderator" ? "dc:moderator:" : "dc:") + code;
   const [key] = useState(() => {
     if (overlay || publicViewer || !code) return "";
     const incoming = new URLSearchParams(location.hash.slice(1)).get("key");
     try {
-      if (incoming) localStorage.setItem("dc:" + code, incoming);
+      if (incoming) localStorage.setItem(storageKey, incoming);
       if (incoming)
         history.replaceState(null, "", location.pathname + location.search);
-      return incoming || localStorage.getItem("dc:" + code) || "";
+      return incoming || localStorage.getItem(storageKey) || "";
     } catch {
       return incoming || "";
     }
@@ -110,12 +121,8 @@ function App() {
   const [now, setNow] = useState(Date.now() / 1000);
   const [offset, setOffset] = useState(0);
   const [help, setHelp] = useState(false);
-  const [view, setView] = useState<"creator" | "moderator" | "setup">(() => {
-    const requested = new URLSearchParams(location.search).get("view");
-    return requested === "moderator" || requested === "setup"
-      ? requested
-      : "creator";
-  });
+  const [moderatorKey, setModeratorKey] = useState("");
+  const [displayConfirmed, setDisplayConfirmed] = useState(false);
   const [names, setNames] = useState(["", ""]);
   const [mode, setMode] = useState("rehearsal");
   const [claim, setClaim] = useState("");
@@ -127,6 +134,16 @@ function App() {
   const [correction, setCorrection] = useState("");
   const [copied, setCopied] = useState("");
   const prefix = "/rooms/" + code;
+  const view = room?.role || "viewer";
+  const isCreator = view === "creator";
+  const setup = room?.setup;
+  const showSetup = isCreator && setupPage;
+  useEffect(() => {
+    if (!showSetup || !key) return;
+    api(prefix + "/invites", key, {})
+      .then((result) => setModeratorKey(result.moderator_key))
+      .catch((e) => setError(e.message));
+  }, [showSetup, key, prefix]);
   useEffect(() => {
     api("/config")
       .then(setConfig)
@@ -187,11 +204,21 @@ function App() {
       names: names.map((n, i) => n.trim() || ["Alex", "Jamie"][i]),
       mode,
     });
-    if (mode === "rehearsal")
+    if (mode === "rehearsal") {
+      const invites = await api(
+        "/rooms/" + result.id + "/invites",
+        result.key,
+        {},
+      );
       for (const sample of samples)
-        await api("/rooms/" + result.id + "/rehearsal", result.key, sample);
+        await api(
+          "/rooms/" + result.id + "/rehearsal",
+          invites.moderator_key,
+          sample,
+        );
+    }
     location.href =
-      "/room/" + result.id + "#key=" + encodeURIComponent(result.key);
+      "/room/" + result.id + "/setup#key=" + encodeURIComponent(result.key);
   }
   async function copy(value: string, label: string) {
     await navigator.clipboard.writeText(value);
@@ -206,6 +233,12 @@ function App() {
   const connected =
     room?.channels.filter((c) => c.status === "connected").length || 0;
   const disabled = busy || !!connectionError;
+  const setupReady =
+    !!setup &&
+    Object.values(setup.shared).every(Boolean) &&
+    Object.values(setup.confirmed).every(Boolean) &&
+    setup.incident_selected &&
+    (room?.mode === "rehearsal" || connected === 2);
   const notice = new URLSearchParams(location.search).get("twitch");
   const status =
     room?.mode === "rehearsal"
@@ -344,7 +377,7 @@ function App() {
         </button>
         <button
           className="primary"
-          disabled={disabled}
+          disabled={disabled || !setup?.complete}
           onClick={() =>
             perform(() =>
               act(room.phase === "finished" ? "new_round" : "advance"),
@@ -359,7 +392,7 @@ function App() {
       </p>
     </section>
   );
-  const incidentPicker = room && key && room.phase === "briefing" && (
+  const incidentPicker = room && isCreator && room.phase === "briefing" && (
     <section className="panel incident-picker">
       <h2>Choose your disaster</h2>
       <div className="incident-options">
@@ -367,7 +400,10 @@ function App() {
           <button
             disabled={disabled}
             key={s}
-            className={s === room.incident ? "selected" : ""}
+            className={
+              s === room.incident && setup?.incident_selected ? "selected" : ""
+            }
+            aria-pressed={s === room.incident && !!setup?.incident_selected}
             onClick={() => perform(() => act("incident", { text: s }))}
           >
             {s}
@@ -503,7 +539,7 @@ function App() {
       </div>
     </section>
   );
-  const inbox = room && key && (
+  const inbox = room && view === "moderator" && (
     <section className="panel inbox">
       <div className="panel-heading">
         <h2>The press inbox</h2>
@@ -587,75 +623,106 @@ function App() {
       </button>
     </section>
   );
-  const roomLinks = room && key && (
-    <section className="share-panel panel">
-      <div>
-        <h2>Bring your partner. Leave the press outside.</h2>
-        <p>
-          The creator invite grants full controls to your partner or moderator.
-          Keep it off-stream.
-        </p>
-        <button
-          className="secondary"
-          onClick={() =>
-            perform(() =>
-              copy(
-                location.origin +
-                  "/room/" +
-                  code +
-                  "?view=creator#key=" +
-                  encodeURIComponent(key),
-                "invite",
-              ),
-            )
-          }
-        >
-          {copied === "invite"
-            ? "Copied invite"
-            : "Copy private creator invite"}
-        </button>
-        <button
-          className="secondary"
-          onClick={() =>
-            perform(() =>
-              copy(
-                location.origin +
-                  "/room/" +
-                  code +
-                  "?view=moderator#key=" +
-                  encodeURIComponent(key),
-                "moderator",
-              ),
-            )
-          }
-        >
-          {copied === "moderator"
-            ? "Copied moderator invite"
-            : "Copy moderator invite"}
-        </button>
-        <small className="invite-note">
-          Both private invites grant the same room controls. They open different
-          workspaces.
-        </small>
-      </div>
-      <div>
-        <h3>Audience links</h3>
-        <button
-          className="secondary"
-          onClick={() =>
-            perform(() => copy(location.origin + "/view/" + code, "viewer"))
-          }
-        >
-          {copied === "viewer" ? "Copied viewer link" : "Copy viewer link"}
-        </button>
-        <p>
-          Public viewer page and OBS source never show pending questions or
-          private advice.
-        </p>
-        <h3>OBS browser source</h3>
-        <p>
-          Transparent background. Set the source to 1920 × 1080. Only approved
-          public content appears.
+  const participantNames: Record<Participant, string> = {
+    creator: "Your creator partner",
+    moderator: "Your moderator",
+    viewer: "Your audience",
+  };
+  const inviteLinks: Record<Participant, string> = {
+    creator:
+      location.origin + "/room/" + code + "#key=" + encodeURIComponent(key),
+    moderator:
+      location.origin +
+      "/moderator/" +
+      code +
+      "#key=" +
+      encodeURIComponent(moderatorKey),
+    viewer: location.origin + "/view/" + code,
+  };
+  const roomLinks = room && isCreator && setup && (
+    <section className="panel setup-step">
+      <span className="section-kicker">1 / Bring everyone in</span>
+      <h2>Share a link. Get a quick thumbs-up.</h2>
+      <p className="muted">
+        Each link opens only that participant’s page. Ask them to press “I can
+        see the room” when it loads. Keep private links off-stream.
+      </p>
+      <ul className="setup-checklist">
+        {(["creator", "moderator", "viewer"] as const).map((participant) => (
+          <li key={participant}>
+            <div className="checklist-heading">
+              <h3>{participantNames[participant]}</h3>
+              <span
+                className={
+                  "check-status " +
+                  (setup.confirmed[participant] ? "checked" : "")
+                }
+              >
+                {setup.confirmed[participant]
+                  ? "Page checked ✓"
+                  : "Waiting for confirmation"}
+              </span>
+            </div>
+            <p className="muted">
+              {participant === "creator"
+                ? "The situation, approved advice and performance controls."
+                : participant === "moderator"
+                  ? "The press inbox, publishing controls and claim record."
+                  : "The public display and chat commands. No private tools."}
+            </p>
+            <div className="checklist-actions">
+              <button
+                className="secondary"
+                disabled={
+                  disabled || (participant === "moderator" && !moderatorKey)
+                }
+                onClick={() =>
+                  perform(() => copy(inviteLinks[participant], participant))
+                }
+              >
+                {copied === participant
+                  ? "Copied link"
+                  : "Copy " + participant + " link"}
+              </button>
+              {(participant !== "moderator" || moderatorKey) && (
+                <a
+                  className="text-button"
+                  href={inviteLinks[participant]}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open {participant} page
+                </a>
+              )}
+              <label className="share-check">
+                <input
+                  type="checkbox"
+                  checked={setup.shared[participant]}
+                  disabled={disabled}
+                  onChange={(e) =>
+                    perform(() =>
+                      act("share", {
+                        role: participant,
+                        shared: e.target.checked,
+                      }),
+                    )
+                  }
+                />
+                I’ve shared this link
+              </label>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <small className="invite-note">
+        Page checks confirm that someone can see the page; they are not an
+        ongoing connection or Twitch chat test. For a solo rehearsal, open the
+        three links in separate tabs and confirm each one.
+      </small>
+      <details className="command-help">
+        <summary>OBS browser source (optional)</summary>
+        <p className="muted">
+          Transparent, read-only display. Set the source to 1920 × 1080.
         </p>
         <button
           className="secondary"
@@ -668,10 +735,10 @@ function App() {
         <a href={"/overlay/" + code} target="_blank" rel="noreferrer">
           Preview overlay
         </a>
-      </div>
+      </details>
     </section>
   );
-  const channels = room && room.mode === "live" && key && (
+  const channels = room && room.mode === "live" && isCreator && (
     <section className="channel-bar panel">
       <div>
         <strong>Your communities</strong>
@@ -726,53 +793,58 @@ function App() {
       )}
     </section>
   );
-  const sampleInput = room && key && room.mode === "rehearsal" && (
-    <details className="panel rehearsal-tools">
-      <summary>Add a sample contribution</summary>
-      <p className="muted">
-        Rehearsal only. These are not real Twitch messages.
-      </p>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          perform(async () => {
-            await api(prefix + "/rehearsal", key, {
-              kind: sampleKind,
-              text: sampleText,
+  const sampleInput = room &&
+    view === "moderator" &&
+    room.mode === "rehearsal" && (
+      <details className="panel rehearsal-tools">
+        <summary>Add a sample contribution</summary>
+        <p className="muted">
+          Rehearsal only. These are not real Twitch messages.
+        </p>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            perform(async () => {
+              await api(prefix + "/rehearsal", key, {
+                kind: sampleKind,
+                text: sampleText,
+              });
+              setSampleText("");
+              await refresh();
             });
-            setSampleText("");
-            await refresh();
-          });
-        }}
-      >
-        <label>
-          Contribution type
-          <select
-            value={sampleKind}
-            onChange={(e) => setSampleKind(e.target.value)}
+          }}
+        >
+          <label>
+            Contribution type
+            <select
+              value={sampleKind}
+              onChange={(e) => setSampleKind(e.target.value)}
+            >
+              {Object.entries(kindNames).map(([k, v]) => (
+                <option value={k} key={k}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Message
+            <textarea
+              value={sampleText}
+              maxLength={280}
+              onChange={(e) => setSampleText(e.target.value)}
+              required
+            />
+          </label>
+          <button
+            disabled={disabled || !sampleText.trim()}
+            className="secondary"
           >
-            {Object.entries(kindNames).map(([k, v]) => (
-              <option value={k} key={k}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Message
-          <textarea
-            value={sampleText}
-            maxLength={280}
-            onChange={(e) => setSampleText(e.target.value)}
-            required
-          />
-        </label>
-        <button disabled={disabled || !sampleText.trim()} className="secondary">
-          Add to inbox
-        </button>
-      </form>
-    </details>
-  );
+            Add to inbox
+          </button>
+        </form>
+      </details>
+    );
   const chatGuide = (
     <section className="chat-guide">
       <h3>Give chat the floor</h3>
@@ -790,6 +862,39 @@ function App() {
         and under 280 characters.
       </small>
     </section>
+  );
+  const participantCheck = room && room.phase === "briefing" && !showSetup && (
+    <div className="participant-check" role="status">
+      <div>
+        <strong>
+          {view === "viewer"
+            ? "Audience display"
+            : view === "moderator"
+              ? "Moderator page"
+              : "Creator page"}
+        </strong>
+        <p>
+          {displayConfirmed || setup?.confirmed[view]
+            ? "Page check sent to the creator."
+            : "Let the creator know this page is working before the conference starts."}
+        </p>
+      </div>
+      <button
+        className="secondary"
+        disabled={disabled || displayConfirmed || !!setup?.confirmed[view]}
+        onClick={() =>
+          perform(async () => {
+            await api(prefix + "/confirm", key, {});
+            setDisplayConfirmed(true);
+            await refresh();
+          })
+        }
+      >
+        {displayConfirmed || setup?.confirmed[view]
+          ? "Confirmed ✓"
+          : "I can see the room"}
+      </button>
+    </div>
   );
   if (overlay)
     return (
@@ -823,10 +928,13 @@ function App() {
             <button className="text-button" onClick={() => setHelp(true)}>
               How to play
             </button>
-            {room && key && (
-              <button className="secondary" onClick={() => setView("setup")}>
-                Room setup
-              </button>
+            {room && isCreator && (
+              <a
+                className="secondary"
+                href={"/room/" + code + (showSetup ? "" : "/setup")}
+              >
+                {showSetup ? "Creator page" : "Room setup"}
+              </a>
             )}
           </div>
         </div>
@@ -969,7 +1077,7 @@ function App() {
               <div>
                 <span className="section-kicker">
                   {key
-                    ? `Round ${room.round} / ${phaseNames[room.phase]}`
+                    ? `${showSetup ? "Room setup" : view === "moderator" ? "Moderator" : "Creator"} / Round ${room.round}`
                     : "From the audience"}
                 </span>
                 <h1>
@@ -977,8 +1085,8 @@ function App() {
                     ? "The press is listening."
                     : view === "moderator"
                       ? "Give them a good question."
-                      : view === "setup"
-                        ? "Behind the conference."
+                      : showSetup
+                        ? "First, get everyone ready."
                         : "Keep your stories straight."}
                 </h1>
               </div>
@@ -1002,26 +1110,12 @@ function App() {
                   : "Twitch connection was not completed. Check the app configuration and try again."}
               </div>
             )}
-            {key && (
-              <nav className="workspace-tabs" aria-label="Studio workspace">
-                {(["creator", "moderator", "setup"] as const).map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    aria-current={view === name ? "page" : undefined}
-                    onClick={() => setView(name)}
-                  >
-                    {name === "creator"
-                      ? "Creator"
-                      : name === "moderator"
-                        ? "Moderator"
-                        : "Room setup"}
-                    {name === "moderator" && !!room.queue?.length && (
-                      <span className="tab-count">{room.queue.length}</span>
-                    )}
-                  </button>
-                ))}
-              </nav>
+            {participantCheck}
+            {key && !setup?.complete && !showSetup && (
+              <p className="notice">
+                The creator is setting up the room. Confirm your page above; the
+                conference can start when the checklist is complete.
+              </p>
             )}
             {!key ? (
               <div className="viewer-workspace">
@@ -1036,25 +1130,74 @@ function App() {
                 </details>
                 {chatGuide}
               </div>
-            ) : view === "setup" ? (
+            ) : showSetup ? (
               <div className="setup-workspace">
                 <div className="workspace-intro">
-                  <h2>Get the room ready.</h2>
+                  <h2>A quick pre-show check.</h2>
                   <p>
-                    Connect channels, invite your team, and choose the incident.
-                    Then return to the creator or moderator workspace.
+                    Invite your team, check their pages, then choose the
+                    fictional incident you’ll defend. Everyone’s confirmation
+                    appears here automatically.
                   </p>
                 </div>
-                {channels}
                 {roomLinks}
-                {room.phase === "briefing" ? (
-                  incidentPicker
-                ) : (
-                  <p className="notice">
-                    The incident is locked for this round. Finish the conference
-                    to choose another.
+                <section className="panel setup-step">
+                  <span className="section-kicker">2 / Check the chat</span>
+                  <h2>
+                    {room.mode === "rehearsal"
+                      ? "Rehearsal is ready."
+                      : "Connect your communities."}
+                  </h2>
+                  {room.mode === "rehearsal" ? (
+                    <p className="muted">
+                      Labeled sample contributions are waiting in the
+                      moderator’s inbox. No Twitch connection is required.
+                    </p>
+                  ) : (
+                    channels
+                  )}
+                </section>
+                <div className="setup-step">
+                  <span className="section-kicker">
+                    3 / Pick your opening disaster
+                  </span>
+                  {room.phase === "briefing" ? (
+                    incidentPicker
+                  ) : (
+                    <p className="notice">
+                      The incident is locked for this round. Finish the
+                      conference to choose another.
+                    </p>
+                  )}
+                  {room.phase === "briefing" && setup?.incident_selected && (
+                    <p className="selected-incident" role="status">
+                      Selected: {room.incident}
+                    </p>
+                  )}
+                </div>
+                <div className="setup-finish">
+                  <p>
+                    {setup?.complete
+                      ? "Setup is complete. Your team is ready for the conference."
+                      : setupReady
+                        ? "Everyone has checked in. Your disaster is selected."
+                        : "Share and check all three links, then choose an incident. Live rooms also need both Twitch channels connected."}
                   </p>
-                )}
+                  <button
+                    className="primary"
+                    disabled={disabled || (!setup?.complete && !setupReady)}
+                    onClick={() =>
+                      perform(async () => {
+                        if (!setup?.complete) await act("setup_complete");
+                        location.href = "/room/" + code;
+                      })
+                    }
+                  >
+                    {setup?.complete
+                      ? "Return to creator page"
+                      : "Finish setup & enter creator page"}
+                  </button>
+                </div>
               </div>
             ) : (
               <>
@@ -1070,12 +1213,12 @@ function App() {
                         {stage}
                         {advice}
                         {room.phase === "briefing" && (
-                          <button
+                          <a
                             className="text-button"
-                            onClick={() => setView("setup")}
+                            href={"/room/" + code + "/setup"}
                           >
                             Change the incident in room setup
-                          </button>
+                          </a>
                         )}
                         {controls}
                       </>
