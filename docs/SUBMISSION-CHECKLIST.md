@@ -1,55 +1,38 @@
-# Damage Control — submission checklist
+# Damage Control — submission readiness
 
-## Do these first
+The original submission deadline was missed. Reopening is unconfirmed. This checklist preserves the useful preparation without assuming there is an open submission form.
 
-1. **Open or save the Devpost submission draft now.** Enter the project name, code URL and session ID before recording.
-2. **Use the app branch, not an assumed default-branch build.** The repository is public, but PR #1 was still open when checked. Code URL: https://github.com/Nuxview/twitch-codex-hackathon/tree/feat/damage-control-mvp. Merging the PR is an alternative; it has not been done as part of this preparation.
-3. **Record the Twitch moment and Codex footage.** Keep the take short, upload immediately, then finish the text.
+## Current position
 
-## Required submission items
+- Repository: https://github.com/Nuxview/Damage-Control
+- PR #1 is merged; the working app is on main.
+- Live chat has been reported working in playtesting.
+- Finish the remaining issues, capture fresh footage and record the voice-over separately.
+- No finished YouTube upload or public hosted playtest has been established in this preparation.
 
-- [ ] Accessible code repository with setup instructions.
-- [ ] Project description covering functionality and Codex use.
-- [ ] Codex session ID: `01a1882c-c255-7a13-97d0-d1a788a4d0e6` — verified against this chat's app metadata.
-- [ ] A video under three minutes, showing the project on Twitch and the Codex build process.
-- [ ] A YouTube link accessible to judges. Choose Public to follow the stricter wording of the official rules.
-- [ ] Complete the required Devpost fields and submit; saving a draft is not the final submission.
+## Prepare the material
 
-Requirements source: [official rules](https://twitchcon-codex.devpost.com/rules), checked November 2, 2026. The [FAQ](https://twitchcon-codex.devpost.com/resources) permits unlisted YouTube videos, while the rules say publicly visible; Public avoids that discrepancy.
+- [ ] Resolve the demo-blocking issues and check a full round on the recording laptop.
+- [ ] Run the local recording test in [DEMO.md](DEMO.md), including playback of the saved file.
+- [ ] Capture real Twitch interaction and Codex build footage in short sections.
+- [ ] Record the voice-over separately; edit a short version under three minutes.
+- [ ] Watch the full exported file, upload it and review the processed video and visibility.
+- [ ] Review [SUBMISSION.md](SUBMISSION.md) against the finished build and footage.
+- [ ] Add the actual YouTube URL. Add a hosted URL only after the final hosting stage.
 
-## Deadline and time budget
+Verified Codex session ID: `01a1882c-c255-7a13-97d0-d1a788a4d0e6`.
 
-The official rules list **November 2, 2026, 2:00 p.m. Pacific**, and the page labels it **PST**. That is **November 3, 1:00 a.m. in Nairobi**. The FAQ's UTC example conflicts with that timezone conversion; check the countdown in your own Devpost tab and submit early.
+## If organizers reopen submissions
 
-Spend the remaining hour roughly as follows:
+1. Confirm the official announcement, eligibility, new deadline and rules about work done after the original cutoff. A rumor is not an extension.
+2. Check the current required fields. Previous requirements included accessible source, a functionality/Codex description, the session ID and a short YouTube demo showing Twitch and Codex.
+3. Check video and code links in a signed-out/private window, then submit the entry. A saved draft is not a final submission.
+4. Leave an upload/form buffer and retain the submission confirmation.
 
-| Minutes from now | Task |
-| --- | --- |
-| 0–5 | Save the submission draft; check code branch, room, microphone and prepared messages. |
-| 5–20 | One rehearsal and one good recording. |
-| 20–30 | Trim the ends and dead air; start the YouTube upload. |
-| 30–40 | Paste the project copy and session ID; select clear project images. |
-| 40–50 | Check the video link and submit the complete entry. |
-| 50–60 | Keep as upload/form buffer. |
+References: [hackathon](https://twitchcon-codex.devpost.com/), [updates](https://twitchcon-codex.devpost.com/updates), [rules](https://twitchcon-codex.devpost.com/rules).
 
-Do not start another feature, migrate storage or wait for cosmetic perfection before submitting the working entry.
+## Work order
 
-## Links to use
+Finish app → capture gameplay → record voice-over → edit/publish YouTube → review/publish write-ups → host a small feedback build.
 
-- Hackathon: https://twitchcon-codex.devpost.com/
-- Code: https://github.com/Nuxview/twitch-codex-hackathon/tree/feat/damage-control-mvp
-- PR: https://github.com/Nuxview/twitch-codex-hackathon/pull/1
-- App README: https://github.com/Nuxview/twitch-codex-hackathon/blob/feat/damage-control-mvp/README.md
-- Build session: `01a1882c-c255-7a13-97d0-d1a788a4d0e6`
-
-## Final two-minute check
-
-- [ ] Open the YouTube URL in a signed-out/private window and play it.
-- [ ] The video shows a real Twitch command arriving in the app, not only the connected-account badge.
-- [ ] The Codex portion contains actual app/chat/build footage.
-- [ ] Solo narration explains that one person is demonstrating both creator roles.
-- [ ] No `.env`, OAuth secrets, private invite fragments or unrelated private messages appear.
-- [ ] The code link opens the working app branch, and the submitted copy matches the footage.
-- [ ] The final Devpost page confirms submission. Retain the URL or a screenshot of that confirmation.
-
-Hosting is optional in this preparation. Add a hosted URL if it is ready, but do not let an unfinished deployment consume the recording/upload window. The rules require accessible source and testing instructions; no claim has been made that a hosted instance is already deployed.
+See [FINISHING.md](FINISHING.md). No video or social post has been published, no deployment performed, and no entry submitted by preparing these documents.
