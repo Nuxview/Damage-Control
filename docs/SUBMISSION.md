@@ -1,6 +1,6 @@
 # Damage Control — Devpost copy
 
-Copy the project text below. Replace the video link and add a live URL only if the hosted version is actually working. This is a draft, not a completed submission.
+The original submission window was missed. This draft can support the project page or a future entry if organizers officially reopen submissions. Copy the project text below. Replace the video link and add a live URL only if the hosted version is actually working. This is a draft, not a completed submission.
 
 ## Project name
 
@@ -26,7 +26,7 @@ Two creators choose a fictional incident and take turns defending the same expla
 
 A moderator reviews contributions before publishing them. Approved questions appear on the audience display, while PR advice stays private. The moderator pins claims the creators actually make, giving chat material for follow-up questions. Both creators share one official correction, and the original claim remains in the record.
 
-Creators, moderators and viewers each have their own page. The public display can be added to OBS. A room can run several rounds, including custom incidents, and a labeled rehearsal mode lets people try it without Twitch credentials.
+Creators, moderators and viewers each have their own page. The public display can be added to OBS, so viewers can follow the livestream without opening another app window. A room can run several rounds, including custom incidents, and a labeled rehearsal mode lets people try it without Twitch credentials.
 
 ## How I built it
 
@@ -49,7 +49,7 @@ Another challenge was keeping public and private information separate. The audie
 - One shared correction that preserves the original statement.
 - A public card shared by the moderator preview and OBS display.
 - Custom incidents that stay available between rounds.
-- 59 passing backend tests, plus TypeScript, lint and a passing CI production build on the tested app commit.
+- 65 passing backend tests, plus TypeScript and lint checks. The merged hackathon build also passed the CI production build; check the latest PR checks before recording.
 
 ## What I learned
 
@@ -67,20 +67,20 @@ OpenAI Codex, Python, Flask, SQLite, React, TypeScript, Vite, pnpm, uv, Twitch A
 
 ## Links and session ID
 
-- **Code, correct branch:** https://github.com/Nuxview/twitch-codex-hackathon/tree/feat/damage-control-mvp
-- **Repository root:** https://github.com/Nuxview/twitch-codex-hackathon
+- **Code (main):** https://github.com/Nuxview/Damage-Control
+- **Repository root:** https://github.com/Nuxview/Damage-Control
 - **Demo video:** PASTE YOUR PUBLIC YOUTUBE URL
 - **Live app:** add only after confirming the deployed app works; the repository and local setup instructions are already available.
 - **Codex session ID:** `01a1882c-c255-7a13-97d0-d1a788a4d0e6`
-- **Tested app commit:** `216473469abc2b80cfcd24b2071bce2895e6e88b`
+- **Merged hackathon app commit:** `216473469abc2b80cfcd24b2071bce2895e6e88b`. Post-hackathon fixes are reviewed separately; record from the latest checked build.
 
 ## Testing instructions for judges
 
-The app is currently on the `feat/damage-control-mvp` branch. If that branch has been merged before submission, the repository root can be used normally.
+PR #1 is merged. The working app is on `main` in the renamed repository.
 
 ```bash
-git clone --branch feat/damage-control-mvp https://github.com/Nuxview/twitch-codex-hackathon.git
-cd twitch-codex-hackathon
+git clone https://github.com/Nuxview/Damage-Control.git
+cd Damage-Control
 uv sync --locked
 cd frontend
 pnpm install --frozen-lockfile
@@ -90,7 +90,7 @@ cp .env.example .env
 uv run python -m backend.app
 ```
 
-Requires Python 3.12+, Node.js 22.12+, uv and the pinned pnpm version. Open http://localhost:5000 and choose Rehearsal. Open the participant links in separate tabs to check in as both creators, the moderator and a viewer. Select an incident, finish setup and play a round. Rehearsal contributions are labeled samples.
+Requires Python 3.12+, Node.js 22.12+, uv and the pinned pnpm version. Open http://localhost:5000 and choose Rehearsal. Open the participant links in separate tabs to check in as both creators, and the moderator. The optional viewer page is not needed to complete setup. Select an incident, finish setup and play a round. Rehearsal contributions are labeled samples.
 
 For real Twitch chat, follow the README to register an app and configure OAuth. Each creator authorizes their own distinct account; viewers submit commands in Twitch chat. Remote creators must reach the same running backend.
 

@@ -17,7 +17,7 @@ def room(tmp_path):
 
 def finish_setup(store, code, key):
     moderator = store.invite(code, key)
-    for credential in (key, moderator, None):
+    for credential in (key, moderator):
         store.confirm(code, credential)
     store.action(code, key, "incident", {"text": "Our airline delivered everyone to a wedding."})
     store.action(code, key, "setup_complete", {})
@@ -133,6 +133,27 @@ def test_connection_loss_pauses_timer(room):
     Twitch(store, "client", "secret").pause(code)
     state = store.view(code)
     assert state["deadline"] is None and 0 < state["remaining"] <= 30
+
+
+@pytest.mark.parametrize("timer_state", ["running", "paused", "expired"])
+def test_passing_the_mic_starts_a_fresh_timer_for_each_creator(room, monkeypatch, timer_state):
+    store, code, creator, _moderator = room
+    monkeypatch.setattr("backend.game.time.time", lambda: 1000)
+    start(store, code, creator)
+    monkeypatch.setattr(
+        "backend.game.time.time", lambda: 1010 if timer_state != "expired" else 1040
+    )
+    if timer_state == "paused":
+        store.action(code, creator, "timer", {})
+        assert store.view(code)["remaining"] == 20
+    store.action(code, creator, "turn", {})
+    state = store.view(code)
+    assert state["turn"] == 1 and state["remaining"] is None
+    assert state["deadline"] == (1070 if timer_state == "expired" else 1040)
+    monkeypatch.setattr("backend.game.time.time", lambda: 1050)
+    store.action(code, creator, "turn", {})
+    state = store.view(code)
+    assert state["turn"] == 0 and state["deadline"] == 1080 and state["remaining"] is None
 
 
 @pytest.fixture
@@ -260,6 +281,48 @@ def test_setup_requires_page_checks_and_incident(client):
     assert action("incident", text="Our zoo misplaced the moon.").status_code == 200
     assert action("setup_complete").status_code == 200
     assert action("advance").status_code == 200
+
+
+def test_a_viewer_window_is_optional_for_setup(client):
+    path, creator = create(client)
+    code = path.split("/")[-1]
+    store = client.application.extensions["game"]
+    finish_setup(store, code, creator["X-Control-Key"])
+    setup = store.view(code, creator["X-Control-Key"])["setup"]
+    assert setup["complete"] and not setup["confirmed"]["viewer"]
+
+
+def test_public_overlay_state_tracks_custom_incidents_across_rounds_without_caching(client):
+    path, creator = create(client)
+    code = path.split("/")[-1]
+    store = client.application.extensions["game"]
+    finish_setup(store, code, creator["X-Control-Key"])
+    first = client.get(path)
+    assert first.headers["Cache-Control"] == "no-store"
+    for _ in range(4):
+        store.action(code, creator["X-Control-Key"], "advance", {})
+    store.action(code, creator["X-Control-Key"], "new_round", {})
+    store.action(
+        code, creator["X-Control-Key"], "incident", {"text": "Our disco-ball moon hired a DJ."}
+    )
+    latest = client.get(path, headers={"If-None-Match": "previous-round"})
+    assert latest.status_code == 200 and latest.headers["Cache-Control"] == "no-store"
+    assert latest.json["round"] == 2
+    assert latest.json["incident"] == "Our disco-ball moon hired a DJ."
+    assert latest.json["revision"] > first.json["revision"]
+    assert "queue" not in latest.json and "spin" not in latest.json
+
+
+def test_overlay_page_is_not_cached_but_assets_keep_their_cache_policy(tmp_path, monkeypatch):
+    monkeypatch.setattr("backend.app.ROOT", tmp_path)
+    dist = tmp_path / "frontend" / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<html>Audience display</html>")
+    (dist / "assets" / "demo-1234.js").write_text("export {};")
+    client = create_app(":memory:").test_client()
+    assert client.get("/overlay/ROOM").headers["Cache-Control"] == "no-store"
+    assert client.get("/view/ROOM").headers["Cache-Control"] == "no-store"
+    assert "no-store" not in client.get("/assets/demo-1234.js").headers["Cache-Control"]
 
 
 def test_live_setup_requires_connected_channels(client, monkeypatch):

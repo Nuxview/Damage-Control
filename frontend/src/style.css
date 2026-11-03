@@ -602,8 +602,12 @@ legend {
   letter-spacing: -1.5px;
   line-height: 1;
 }
-.timer .text-button {
-  font-size: 10px;
+.timer .timer-toggle {
+  font-size: 14px;
+  min-height: 44px;
+  min-width: 140px;
+  margin-top: 10px;
+  padding: 12px 18px;
 }
 .round-controls > .muted {
   margin: 12px 0 0;
@@ -1042,6 +1046,17 @@ legend {
   cursor: pointer;
   font-size: 14px;
   font-weight: 700;
+}
+.audience-links {
+  margin-bottom: 22px;
+}
+.audience-links summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 14px;
+}
+.audience-links p {
+  margin: 16px 0;
 }
 .incident-picker > .text-button {
   margin-top: 16px;

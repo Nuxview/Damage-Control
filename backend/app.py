@@ -58,7 +58,7 @@ def create_app(database=None):
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
         )
-        if request.path.startswith("/api/"):
+        if not request.path.startswith(("/assets/", "/assets-static/")):
             response.headers["Cache-Control"] = "no-store"
         return response
 

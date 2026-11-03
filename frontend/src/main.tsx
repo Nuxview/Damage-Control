@@ -18,7 +18,7 @@ type Claim = {
 };
 type Channel = { slot: number; status: string; channel: string | null };
 type Participant = "creator" | "moderator" | "viewer";
-type SetupStep = Participant | "you" | "incident";
+type SetupStep = "you" | "creator" | "moderator" | "incident";
 type Setup = {
   confirmed: Record<Participant, boolean>;
   creators_confirmed: boolean[];
@@ -83,9 +83,16 @@ const samples = [
     text: "Why does the wedding cake have a boarding gate number?",
   },
 ];
-async function api(path: string, key = "", data?: unknown) {
+async function api(
+  path: string,
+  key = "",
+  data?: unknown,
+  signal?: AbortSignal,
+) {
   const response = await fetch("/api" + path, {
     method: data === undefined ? "GET" : "POST",
+    cache: "no-store",
+    signal,
     headers: {
       ...(key ? { "X-Control-Key": key } : {}),
       ...(data !== undefined ? { "Content-Type": "application/json" } : {}),
@@ -159,13 +166,7 @@ function App() {
   const ownName = displayName ?? room?.names[creatorSlot] ?? "";
   const setup = room?.setup;
   const showSetup = isCreator && creatorSlot === 0 && setupPage;
-  const setupSteps: SetupStep[] = [
-    "you",
-    "creator",
-    "moderator",
-    "viewer",
-    "incident",
-  ];
+  const setupSteps: SetupStep[] = ["you", "creator", "moderator", "incident"];
   const stepComplete = (step: SetupStep) => {
     if (step === "incident") return !!setup?.incident_selected;
     if (step === "you" || step === "creator") {
@@ -193,7 +194,6 @@ function App() {
     you: room?.mode === "live" ? "Your name & Twitch account" : "Your name",
     creator: "Invite your partner",
     moderator: "Invite your moderator",
-    viewer: "Share the audience display",
     incident: "Choose your incident",
   };
   useEffect(() => {
@@ -229,24 +229,50 @@ function App() {
     document.documentElement.classList.toggle("overlay-root", overlay);
     if (!code) return;
     let stopped = false;
-    let timer: ReturnType<typeof setTimeout>;
+    let pending = false;
+    let controller: AbortController | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const load = async () => {
+      if (stopped || pending) return;
+      pending = true;
+      clearTimeout(timer);
+      controller = new AbortController();
+      const timeout = setTimeout(() => controller?.abort(), 8000);
       try {
-        const result = await api(prefix, key);
+        const result = await api(prefix, key, undefined, controller.signal);
         if (!stopped) {
           setRoom(result);
           setOffset(result.server_time - Date.now() / 1000);
           setConnectionError("");
         }
       } catch (e) {
-        if (!stopped) setConnectionError((e as Error).message);
+        if (!stopped)
+          setConnectionError(
+            (e as Error).name === "AbortError"
+              ? "Room update timed out. Retrying…"
+              : (e as Error).message,
+          );
+      } finally {
+        clearTimeout(timeout);
+        controller = undefined;
+        pending = false;
       }
       if (!stopped) timer = setTimeout(load, 1000);
     };
-    load();
+    const resume = () => {
+      if (!document.hidden) void load();
+    };
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("pageshow", resume);
+    window.addEventListener("online", resume);
+    void load();
     return () => {
       stopped = true;
       clearTimeout(timer);
+      controller?.abort();
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("pageshow", resume);
+      window.removeEventListener("online", resume);
     };
   }, [code, key]);
   async function perform(task: () => Promise<void>) {
@@ -306,7 +332,8 @@ function App() {
   const disabled = busy || !!connectionError;
   const setupReady =
     !!setup &&
-    Object.values(setup.confirmed).every(Boolean) &&
+    setup.confirmed.creator &&
+    setup.confirmed.moderator &&
     setup.creators_confirmed.every(Boolean) &&
     setup.incident_selected &&
     (room?.mode === "rehearsal" || connected === 2);
@@ -416,7 +443,7 @@ function App() {
             {String(remaining % 60).padStart(2, "0")}
           </strong>
           <button
-            className="text-button"
+            className="secondary timer-toggle"
             disabled={disabled || !isPerforming}
             onClick={() => perform(() => act("timer"))}
           >
@@ -453,7 +480,8 @@ function App() {
         </button>
       </div>
       <p className="muted">
-        The timer is a cue, not a cutoff. Advance when the joke lands.
+        Passing the mic starts a fresh 30-second cue. Pause or resume whenever
+        you need.
       </p>
     </section>
   );
@@ -751,10 +779,9 @@ function App() {
       </button>
     </section>
   );
-  const participantNames: Record<Participant, string> = {
+  const participantNames = {
     creator: "Your creator partner",
     moderator: "Your moderator",
-    viewer: "Your audience",
   };
   const inviteLinks: Record<Participant, string> = {
     creator:
@@ -778,7 +805,7 @@ function App() {
         page when it loads. Keep private links off-stream.
       </p>
       <ul className="setup-checklist">
-        {(["creator", "moderator", "viewer"] as const)
+        {(["creator", "moderator"] as const)
           .filter((participant) => participant === currentStep)
           .map((participant) => (
             <li key={participant}>
@@ -802,9 +829,7 @@ function App() {
               <p className="muted">
                 {participant === "creator"
                   ? "The situation, approved advice and performance controls."
-                  : participant === "moderator"
-                    ? "The press inbox, publishing controls and claim record."
-                    : "The public display and chat commands. No private tools."}
+                  : "The press inbox, publishing controls and claim record."}
               </p>
               <div className="checklist-actions">
                 <button
@@ -840,28 +865,37 @@ function App() {
         participant page in another tab and confirm it. You can continue while
         waiting for a confirmation.
       </small>
-      {currentStep === "viewer" && (
-        <details className="command-help">
-          <summary>OBS browser source (optional)</summary>
-          <p className="muted">
-            Transparent, read-only display. Set the source to 1920 × 1080.
-          </p>
-          <button
-            className="secondary"
-            onClick={() =>
-              perform(() =>
-                copy(location.origin + "/overlay/" + code, "overlay"),
-              )
-            }
-          >
-            {copied === "overlay" ? "Copied overlay URL" : "Copy overlay URL"}
-          </button>{" "}
-          <a href={"/overlay/" + code} target="_blank" rel="noreferrer">
-            Preview overlay
-          </a>
-        </details>
-      )}
     </section>
+  );
+  const audienceLinks = room && isCreator && (
+    <details className="command-help audience-links">
+      <summary>OBS overlay & optional audience page</summary>
+      <p className="muted">
+        Viewers watch the livestream. Add this public display as an OBS browser
+        source; a separate viewer page is optional.
+      </p>
+      <button
+        className="secondary"
+        onClick={() =>
+          perform(() => copy(location.origin + "/overlay/" + code, "overlay"))
+        }
+      >
+        {copied === "overlay" ? "Copied overlay URL" : "Copy OBS URL"}
+      </button>{" "}
+      <a href={"/overlay/" + code} target="_blank" rel="noreferrer">
+        Preview overlay
+      </a>
+      <p className="muted">Optional read-only page for anyone who wants it:</p>
+      <button
+        className="secondary"
+        onClick={() => perform(() => copy(inviteLinks.viewer, "viewer"))}
+      >
+        {copied === "viewer" ? "Copied viewer link" : "Copy viewer link"}
+      </button>{" "}
+      <a href={inviteLinks.viewer} target="_blank" rel="noreferrer">
+        Open viewer page
+      </a>
+    </details>
   );
   const channels = room && room.mode === "live" && isCreator && (
     <section className="channel-bar panel">
@@ -1297,9 +1331,8 @@ function App() {
                     max={setupSteps.length}
                   />
                 </div>
-                {(["creator", "moderator", "viewer"] as string[]).includes(
-                  currentStep,
-                ) && roomLinks}
+                {(["creator", "moderator"] as string[]).includes(currentStep) &&
+                  roomLinks}
                 {currentStep === "you" && (
                   <section className="panel setup-step">
                     {participantCheck}
@@ -1329,6 +1362,7 @@ function App() {
                     )}
                   </div>
                 )}
+                {audienceLinks}
                 <div className="setup-finish">
                   <button
                     className="secondary"

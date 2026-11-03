@@ -248,12 +248,12 @@ class Store:
                 setup = room.get("setup")
                 if setup:
                     if not (
-                        all(setup["confirmed"].values())
+                        all(setup["confirmed"][role] for role in ("creator", "moderator"))
                         and all(setup.get("creators_confirmed", [True, True]))
                         and setup["incident_selected"]
                     ):
                         raise GameError(
-                            "Check all three participant pages, then choose an incident.", 409
+                            "Confirm both creators and the moderator, then choose an incident.", 409
                         )
                     setup["complete"] = True
             elif action == "advance":
@@ -280,6 +280,8 @@ class Store:
                 if room["phase"] not in ("opening", "questions", "closing"):
                     raise GameError("Start the conference before passing the mic.", 409)
                 room["turn"] = 1 - room["turn"]
+                room["deadline"] = time.time() + 30
+                room["remaining"] = None
             elif action == "timer":
                 if room["phase"] not in ("opening", "questions", "closing"):
                     raise GameError("The timer is available during the conference.", 409)
